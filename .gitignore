@@ -1,0 +1,11 @@
+# deps
+node_modules/
+
+/src/generated/prisma
+/src/zod
+*.env
+.DS_Store
+npm-debug.log*
+dist
+build
+coverage

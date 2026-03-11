@@ -1,0 +1,663 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+generator zod {
+  provider = "prisma-zod-generator"
+  output   = "../src/zod"
+  config   = "../zod.config.json"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+
+
+enum UserRole {
+  SUPER_ADMIN
+  BUSINESS_OWNER
+}
+
+enum ClientStatus {
+  ACTIVE
+  ARCHIVED
+  FOLLOW_UP
+  ALL
+}
+
+enum QuoteStatus {
+  NOT_SENT
+  AWAITING_RESPONSE
+  APPROVED
+  CONVERTED
+  REJECTED
+  EXPIRED
+}
+
+enum JobStatus {
+  UNSCHEDULED
+  UNASSIGNED
+  SCHEDULED
+  ON_MY_WAY
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  NOT_SENT
+  AWAITING_PAYMENT
+  OVERDUE
+  PAID
+  BAD_DEBT
+  CANCELLED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  AMOUNT
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  MERCADOPAGO
+  TRANSBANK
+  OTHER
+}
+
+enum ItemType {
+  SERVICE
+  PRODUCT
+}
+
+enum WorkOrderType {
+  WORK_ORDER
+  TASK
+}
+
+
+
+enum ReminderType {
+  QUOTE_FOLLOW_UP_48H
+  QUOTE_FOLLOW_UP_120H
+  BOOKING_CONFIRMATION
+  INVOICE_DUE_DAY
+  INVOICE_OVERDUE_2DAYS
+  CLIENT_FOLLOW_UP
+}
+
+enum NotificationChannel {
+  EMAIL
+  WHATSAPP
+  BOTH
+}
+
+enum TemplateType {
+  QUOTE
+  QUOTE_FOLLOW_UP
+  INVOICE
+  INVOICE_FOLLOW_UP
+  BOOKING_CONFIRMATION
+  BOOKING_CONFIRMATION_REMINDER
+  JOB_REPORT
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  password      String?
+  emailVerified Boolean   @default(false)
+  image         String?
+  banned            Boolean            @default(false)
+  banReason         String?
+  banExpiresAt      DateTime?
+  dob               DateTime?
+  gender            String?
+  phone_no          String?
+  rut               String?   // National Identity Document (RUT) - for team members
+  onboarding_stage  String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  roleId            String?
+  dynamicRole       Role?     @relation(fields:[roleId], references:[id], onDelete:SetNull)
+  role              UserRole    @default(BUSINESS_OWNER)
+  isActive          Boolean     @default(true)
+  lastLoginAt       DateTime?
+
+  sessions           Session[]
+  accounts           Account[]
+  businessesOwned    Business[]     @relation("BusinessOwner")
+  teamMemberships    Member[]       @relation("TeamMember")
+
+  teamInvitationsSent TeamInvitation[] @relation("InvitedBy")
+  auditLogs          AuditLog[]
+  notifications      Notification[]
+}
+
+model Business {
+  id          String   @id @default(cuid())
+  name        String
+  legalName   String?
+  email       String
+  phone       String?
+  address     String?
+  
+  webpage     String?
+  logoUrl     String?
+  
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownerId   String?
+  owner     User?    @relation("BusinessOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  countyId  String?
+  state     String?
+  zipcode   String?
+  clients            Client[]
+  workOrders         WorkOrder[]
+  tasks              Task[]
+  expenses           Expense[]
+  priceListItems     PriceListItem[]
+  
+  teamMembers        Member[]
+  teamInvitations    TeamInvitation[]
+  roles              Role[]
+  settings           BusinessSettings?
+  reminderConfigs    ReminderConfig[]
+  reminderLogs       ReminderLog[]
+  auditLogs          AuditLog[]
+}
+
+model Member {
+  id        String   @id @default(cuid())
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId     String
+  user       User     @relation("TeamMember", fields: [userId], references: [id], onDelete: Cascade)
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  roleId     String
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  assignedTasks      Task[]      @relation("TaskAssignee")
+  assignedWorkOrders WorkOrder[] @relation("WorkOrderAssignee")
+
+  @@unique([userId, businessId])
+  @@map("Member")
+}
+
+model TeamInvitation {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  status    String   @default("pending") // pending, accepted, expired
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  roleId      String
+  role        Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  invitedById String?
+  invitedBy   User?    @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+}
+
+model Role {
+  id        String   @id @default(cuid())
+  name      String    // Business-defined: Admin, Staff, Manager, Helper, Technician, etc.
+  displayName String?
+  description String?
+  isSystem  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  permissions     RolePermission[]
+  members         Member[]
+  teamInvitations TeamInvitation[]
+
+  @@unique([businessId, name])
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  resource    String // e.g., "user", "appointment", "invoice", "role", "permission"
+  action      String // e.g., "create", "read", "update", "delete", "view", "list", "assign", "revoke"
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles       RolePermission[]
+
+  @@unique([resource, action])
+  @@index([resource])
+  @@map("permission")
+
+}
+
+model RolePermission {
+  createdAt DateTime @default(now())
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+enum LeadSource{
+  Website
+  SocialMedia
+  All
+}
+
+model Client {
+  id             String       @id @default(cuid())
+  name           String
+  email          String?
+  phone          String
+  address        String?
+  documentNumber String?
+  leadSource     LeadSource   @default(Website)
+  notes          String?
+  status         ClientStatus @default(ACTIVE)
+  lastActivityAt DateTime?
+  reminderDate   DateTime?    // For follow-up: when triggered, status → FOLLOW_UP
+  reminderNote   String?      @db.Text
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  businessId     String
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workOrders     WorkOrder[]
+  tasks          Task[]
+  reminderLogs   ReminderLog[]
+}
+
+model WorkOrder {
+  id               String   @id @default(cuid())
+  workOrderNumber  String?  @unique // Human-readable correlative for display
+  title            String
+  address          String
+  instructions     String?  @db.Text
+  notes            String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  isScheduleLater  Boolean  @default(false)
+  isAnyTime        Boolean  @default(false)
+
+  // Schedule
+  scheduledAt      DateTime?
+  startTime        String?  // e.g. "09:00"
+  endTime          String?  // e.g. "11:00"
+
+  clientId         String
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  businessId       String
+  business         Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  assignedToId     String?
+  assignedTo       Member?  @relation("WorkOrderAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  // Quote workflow (system-controlled via actions)
+  quoteRequired      Boolean     @default(false)
+  quoteStatus        QuoteStatus @default(NOT_SENT)
+  quoteSentAt        DateTime?
+  quoteApprovedAt    DateTime?
+  quoteRejectedAt    DateTime?
+  quoteExpiredAt     DateTime?
+  quoteConvertedAt   DateTime?
+  quoteExpiresAt     DateTime?
+  lastQuotePdfUrl    String?
+  quoteCorrelative   String?
+  quoteWhatsappStatus String?
+  quoteObservations  String?     @db.Text
+  quoteTermsConditions String?   @db.Text
+
+  // Job workflow (system-controlled via actions)
+  jobStatus                JobStatus @default(UNSCHEDULED)
+  bookingConfirmationSentAt DateTime?
+  confirmedAt              DateTime?
+  onMyWayAt                DateTime?
+  startedAt                DateTime?
+  completedAt              DateTime?
+  cancelledAt              DateTime?
+
+  // Invoice workflow (system-controlled via actions)
+  invoiceStatus         InvoiceStatus @default(NOT_SENT)
+  invoiceSentAt         DateTime?
+  dueAt                 DateTime?
+  invoiceCancelledAt    DateTime?
+  badDebtAt             DateTime?
+  lastInvoicePdfUrl     String?
+  invoiceCorrelative    String?
+  invoiceWhatsappStatus String?
+  invoiceObservations   String?       @db.Text
+  invoiceTermsConditions String?      @db.Text
+
+  // Financial (derived from line items; discount/tax applied)
+  subtotal      Decimal? @db.Decimal(12, 2)
+  discount      Decimal? @db.Decimal(12, 2)
+  discountType  DiscountType?
+  tax           Decimal? @db.Decimal(12, 2)
+  total         Decimal? @db.Decimal(12, 2)
+  cost          Decimal? @db.Decimal(12, 2)
+  amountPaid    Decimal? @db.Decimal(12, 2) @default(0)
+  balance       Decimal? @db.Decimal(12, 2)
+
+  lastJobReportPdfUrl String?
+
+  lineItems    LineItem[]
+  expenses     Expense[]
+  payments     Payment[]
+  attachments  WorkOrderAttachment[]
+  linkedTasks  Task[]
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  amount          Decimal       @db.Decimal(12, 2)
+  paymentDate     DateTime      @db.Date
+  paymentMethod   PaymentMethod
+  referenceNumber String?
+  note            String?       @db.Text
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+}
+
+model LineItem {
+  id            String    @id @default(cuid())
+  name          String
+  itemType      ItemType  @default(SERVICE)
+  description   String?   @db.Text
+  quantity      Int       @default(1)
+  cost          Decimal?  @db.Decimal(12, 2)
+  markupPercent Decimal?  @db.Decimal(5, 2)
+  price         Decimal   @db.Decimal(12, 2)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workOrderId     String?
+  workOrder       WorkOrder?     @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  priceListItemId String?
+  priceListItem   PriceListItem? @relation(fields: [priceListItemId], references: [id], onDelete: SetNull)
+
+  @@index([priceListItemId])
+}
+
+model WorkOrderAttachment {
+  id        String   @id @default(cuid())
+  url       String
+  filename  String?
+  type      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+}
+
+model Task {
+  id            String    @id @default(cuid())
+  title         String
+  address       String?
+  instructions  String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Schedule (for standalone tasks)
+  scheduledAt   DateTime?
+  startTime     String?
+  endTime       String?
+
+  clientId       String?
+  client         Client?     @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  businessId     String
+  business       Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workOrderId    String?     // Optional: standalone tasks have no work order
+  workOrder      WorkOrder?  @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+
+  assignedToId   String?
+  assignedTo     Member?     @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+}
+
+// Master Price List per tenant (services/products)
+model PriceListItem {
+  id            String    @id @default(cuid())
+  itemType      ItemType  @default(SERVICE)
+  name          String
+  description   String?   @db.Text
+  cost          Decimal?  @db.Decimal(12, 2)
+  markupPercent Decimal?  @db.Decimal(5, 2)
+  price         Decimal   @db.Decimal(12, 2)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  businessId   String
+  business     Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lineItems    LineItem[]
+}
+
+
+
+model Expense {
+  id            String   @id @default(cuid())
+  date          DateTime @db.Date
+  itemName      String
+  details       String?  @db.Text
+  total         Decimal  @db.Decimal(12, 2)
+  invoiceNumber String?
+  attachmentUrl String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  businessId   String
+  business     Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workOrderId  String?
+  workOrder    WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+}
+
+
+model BusinessSettings {
+  id String @id @default(cuid())
+
+  // Company
+  invoiceDueDays         Int  @default(3)
+  quoteExpirationDays    Int  @default(7)
+  arrivalWindowMinutes   Int?
+  defaultDurationMinutes Int?
+
+  // Bank & Payment
+  bankName          String?
+  accountType       String?
+  accountNumber     String?
+  paymentEmail      String?
+  onlinePaymentLink String?
+  quoteTermsConditions   String? @db.Text
+  invoiceTermsConditions String? @db.Text
+  whatsappSender           String?
+  whatsappEnabled          Boolean @default(false)
+  sendQuoteWhatsappDefault Boolean @default(false)
+  notificationEmail              String?
+  replyToEmail                   String?
+  sendTeamPhotosWithConfirmation Boolean @default(false)
+
+  quoteRemindersEnabled   Boolean @default(true)
+  bookingRemindersEnabled Boolean @default(true)
+  invoiceRemindersEnabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  templates  MessageTemplate[]
+}
+
+model MessageTemplate {
+  id           String              @id @default(cuid())
+  templateType TemplateType
+  channel      NotificationChannel @default(EMAIL)
+  subject      String?
+  message      String              @db.Text
+  isDefault    Boolean             @default(false)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  settingsId String
+  settings   BusinessSettings @relation(fields: [settingsId], references: [id], onDelete: Cascade)
+}
+
+
+
+model ReminderConfig {
+  id           String              @id @default(cuid())
+  reminderType ReminderType
+  timeValue    Int                 // 1, 2, 3...
+  timeUnit     String              // hours, days
+  timeOfDay    String?             // "18:00" when days selected
+  channel      NotificationChannel @default(EMAIL)
+  subject      String?
+  message      String?             @db.Text
+  isEnabled    Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+model ReminderLog {
+  id           String              @id @default(cuid())
+  reminderType String
+  sentAt       DateTime
+  channel      NotificationChannel
+  entityType   String              // work_order, client
+  entityId     String
+
+  clientId     String?
+  client       Client?             @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  businessId   String              // Required for tenant-scoped filtering
+  business     Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt    DateTime            @default(now())
+}
+
+
+
+model Notification {
+  id        String    @id @default(cuid())
+  type      String
+  title     String
+  message   String?   @db.Text
+  readAt    DateTime?
+  metadata  Json?
+  createdAt DateTime  @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  entityType String
+  entityId   String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// Super Admin: platform-wide settings (branding, default templates, new business defaults)
+model PlatformSettings {
+  id String @id @default(cuid())
+
+  platformLogoUrl    String?
+  platformName       String?
+  primaryColor       String?
+  domain             String?
+  supportEmail       String?
+  defaultQuoteTerms  String?  @db.Text
+  defaultInvoiceTerms String? @db.Text
+  clientEmailCopyEnabled Boolean @default(false) // Copy of client emails sent to this address
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
