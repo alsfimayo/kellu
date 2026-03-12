@@ -162,12 +162,12 @@ export const UpdateWorkOrderBodySchema = CreateWorkOrderBodySchema.partial().ope
 export const RegisterPaymentBodySchema = z
   .object({
     amount: z.number().positive(),
-    paymentDate: z.coerce.date(),
+    paymentDate: z.coerce.date().optional().nullable(),
     paymentMethod: PaymentMethodEnum,
     referenceNumber: z.string().optional().nullable(),
     note: z.string().optional().nullable(),
   })
-  .openapi({ description: 'Register payment on work order' })
+  .openapi({ description: 'Register payment on work order (paymentDate defaults to now if omitted)' })
 
 const WorkOrderListItemSchema = z.object({
   id: z.string(),

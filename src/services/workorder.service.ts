@@ -4,7 +4,7 @@
  * financials (subtotal, discount, tax, total, cost, amountPaid, balance), job status derivation.
  */
 
-import type { Prisma } from '~/generated/prisma'
+import { Prisma } from '~/generated/prisma'
 import type { DiscountType, InvoiceStatus, JobStatus, QuoteStatus } from '~/generated/prisma'
 import prisma from '~/lib/prisma'
 import { BusinessNotFoundError } from '~/services/business.service'
@@ -72,6 +72,10 @@ function toNum(d: unknown): number {
   if (d == null) return 0
   if (typeof d === 'number' && !Number.isNaN(d)) return d
   if (typeof d === 'string') return Number.parseFloat(d) || 0
+  // Handle Prisma Decimal objects
+  if (typeof d === 'object' && d !== null && 'toNumber' in d) {
+    return (d as { toNumber: () => number }).toNumber()
+  }
   return 0
 }
 
@@ -88,51 +92,70 @@ function deriveJobStatus(data: {
 }
 
 /** Recalculate subtotal, discount amount, tax, total, cost, amountPaid, balance and update work order. */
-async function recalculateFinancials(workOrderId: string, taxPercent: number = 0): Promise<void> {
-  const [lineItems, payments, wo] = await Promise.all([
-    prisma.lineItem.findMany({ where: { workOrderId }, select: { quantity: true, price: true, cost: true } }),
-    prisma.payment.findMany({ where: { workOrderId }, select: { amount: true } }),
-    prisma.workOrder.findUnique({
-      where: { id: workOrderId },
-      select: { discount: true, discountType: true },
-    }),
-  ])
-  if (!wo) return
+async function recalculateFinancials(
+  workOrderId: string,
+  taxPercent: number = 0,
+  tx?: Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
+): Promise<void> {
+  const db = tx ?? prisma
+
+  const wo = await db.workOrder.findUnique({
+    where: { id: workOrderId },
+    select: { discount: true, discountType: true },
+  })
+  if (!wo) {
+    console.error('[recalc] workOrder NOT FOUND:', workOrderId)
+    return
+  }
+
+  const lineItems = await db.lineItem.findMany({
+    where: { workOrderId },
+    select: { quantity: true, price: true, cost: true },
+  })
+
+  const payments = await db.payment.findMany({
+    where: { workOrderId },
+    select: { amount: true },
+  })
+
+  console.log('[recalc] workOrderId:', workOrderId)
+  console.log('[recalc] lineItems:', JSON.stringify(lineItems))
+  console.log('[recalc] payments:', JSON.stringify(payments))
+  console.log('[recalc] discount:', wo.discount, 'discountType:', wo.discountType)
 
   let subtotal = 0
   let costTotal = 0
   for (const li of lineItems) {
-    const q = li.quantity
-    const p = toNum(li.price)
-    const c = toNum(li.cost)
-    subtotal += q * p
-    costTotal += q * c
+    subtotal += li.quantity * toNum(li.price)
+    costTotal += li.quantity * toNum(li.cost)
   }
 
   const discountVal = toNum(wo.discount)
-  const discountType = wo.discountType
   let discountAmount = discountVal
-  if (discountType === 'PERCENTAGE') {
+  if (wo.discountType === 'PERCENTAGE') {
     discountAmount = (subtotal * discountVal) / 100
   }
   const afterDiscount = subtotal - discountAmount
   const taxAmount = (afterDiscount * taxPercent) / 100
   const total = afterDiscount + taxAmount
-
   const amountPaid = payments.reduce((s, p) => s + toNum(p.amount), 0)
   const balance = total - amountPaid
 
-  await prisma.workOrder.update({
+  console.log('[recalc] computed → subtotal:', subtotal, 'total:', total, 'balance:', balance)
+
+  await db.workOrder.update({
     where: { id: workOrderId },
     data: {
-      subtotal,
-      cost: costTotal,
-      tax: taxAmount,
-      total,
-      amountPaid,
-      balance,
+      subtotal: new Prisma.Decimal(subtotal),
+      cost: new Prisma.Decimal(costTotal),
+      tax: new Prisma.Decimal(taxAmount),
+      total: new Prisma.Decimal(total),
+      amountPaid: new Prisma.Decimal(amountPaid),
+      balance: new Prisma.Decimal(balance),
     },
   })
+
+  console.log('[recalc] update complete')
 }
 
 async function ensureBusinessExists(businessId: string): Promise<void> {
@@ -283,50 +306,51 @@ export async function createWorkOrder(businessId: string, input: CreateWorkOrder
   const workOrderNumber = `#${await nextWorkOrderNumber(businessId)}`
   const taxPercent = input.taxPercent ?? (await getDefaultTaxPercent(businessId))
 
-  const wo = await prisma.workOrder.create({
-    data: {
-      businessId,
-      clientId: input.clientId,
-      title: input.title,
-      address: input.address,
-      instructions: input.instructions ?? null,
-      notes: input.notes ?? null,
-      isScheduleLater: input.isScheduleLater ?? false,
-      scheduledAt: input.scheduledAt ?? null,
-      startTime: input.startTime ?? null,
-      endTime: input.endTime ?? null,
-      assignedToId: input.assignedToId ?? null,
-      quoteRequired: input.quoteRequired ?? false,
-      quoteTermsConditions: input.quoteTermsConditions ?? null,
-      invoiceTermsConditions: input.invoiceTermsConditions ?? null,
-      quoteStatus: 'NOT_SENT',
-      jobStatus,
-      invoiceStatus: 'NOT_SENT',
-      workOrderNumber,
-      discount: input.discount ?? 0,
-      discountType: input.discountType ?? null,
-    },
-    include: {
-      client: { select: { id: true, name: true, email: true, phone: true } },
-      assignedTo: { select: { id: true, user: { select: { name: true, email: true } } } },
-    },
+  const wo = await prisma.$transaction(async (tx) => {
+    const created = await tx.workOrder.create({
+      data: {
+        businessId,
+        clientId: input.clientId,
+        title: input.title,
+        address: input.address,
+        instructions: input.instructions ?? null,
+        notes: input.notes ?? null,
+        isScheduleLater: input.isScheduleLater ?? false,
+        scheduledAt: input.scheduledAt ?? null,
+        startTime: input.startTime ?? null,
+        endTime: input.endTime ?? null,
+        assignedToId: input.assignedToId ?? null,
+        quoteRequired: input.quoteRequired ?? false,
+        quoteTermsConditions: input.quoteTermsConditions ?? null,
+        invoiceTermsConditions: input.invoiceTermsConditions ?? null,
+        quoteStatus: 'NOT_SENT',
+        jobStatus,
+        invoiceStatus: 'NOT_SENT',
+        workOrderNumber,
+        discount: input.discount ?? 0,
+        discountType: input.discountType ?? null,
+      },
+    })
+
+    if (input.lineItems?.length) {
+      await tx.lineItem.createMany({
+        data: input.lineItems.map((li) => ({
+          workOrderId: created.id,
+          name: li.name,
+          itemType: li.itemType ?? 'SERVICE',
+          description: li.description ?? null,
+          quantity: li.quantity,
+          price: li.price,
+          cost: li.cost ?? null,
+          priceListItemId: li.priceListItemId ?? null,
+        })),
+      })
+    }
+
+    await recalculateFinancials(created.id, taxPercent, tx)
+    return created
   })
 
-  if (input.lineItems?.length) {
-    await prisma.lineItem.createMany({
-      data: input.lineItems.map(li => ({
-        workOrderId: wo.id,
-        name: li.name,
-        itemType: li.itemType ?? 'SERVICE',
-        description: li.description ?? null,
-        quantity: li.quantity,
-        price: li.price,
-        cost: li.cost ?? null,
-        priceListItemId: li.priceListItemId ?? null,
-      })),
-    })
-  }
-  await recalculateFinancials(wo.id, taxPercent)
   return getWorkOrderById(businessId, wo.id)
 }
 
@@ -352,53 +376,53 @@ export async function updateWorkOrder(
         })
       : undefined
 
-  const updateData: Parameters<typeof prisma.workOrder.update>[0]['data'] = {
-    ...(input.title != null && { title: input.title }),
-    ...(input.clientId != null && { clientId: input.clientId }),
-    ...(input.address != null && { address: input.address }),
-    ...(input.instructions !== undefined && { instructions: input.instructions }),
-    ...(input.notes !== undefined && { notes: input.notes }),
-    ...(input.isScheduleLater !== undefined && { isScheduleLater: input.isScheduleLater }),
-    ...(input.scheduledAt !== undefined && { scheduledAt: input.scheduledAt }),
-    ...(input.startTime !== undefined && { startTime: input.startTime }),
-    ...(input.endTime !== undefined && { endTime: input.endTime }),
-    ...(input.assignedToId !== undefined && { assignedToId: input.assignedToId }),
-    ...(input.quoteRequired !== undefined && { quoteRequired: input.quoteRequired }),
-    ...(input.quoteTermsConditions !== undefined && { quoteTermsConditions: input.quoteTermsConditions }),
-    ...(input.invoiceTermsConditions !== undefined && { invoiceTermsConditions: input.invoiceTermsConditions }),
-    ...(input.discount !== undefined && { discount: input.discount }),
-    ...(input.discountType !== undefined && { discountType: input.discountType }),
-    ...(jobStatus != null && { jobStatus }),
-  }
+  const taxPercent = input.taxPercent ?? (await getDefaultTaxPercent(businessId))
 
-  await prisma.workOrder.update({
-    where: { id: workOrderId },
-    data: updateData,
+  await prisma.$transaction(async (tx) => {
+    const updateData: Parameters<typeof prisma.workOrder.update>[0]['data'] = {
+      ...(input.title != null && { title: input.title }),
+      ...(input.clientId != null && { clientId: input.clientId }),
+      ...(input.address != null && { address: input.address }),
+      ...(input.instructions !== undefined && { instructions: input.instructions }),
+      ...(input.notes !== undefined && { notes: input.notes }),
+      ...(input.isScheduleLater !== undefined && { isScheduleLater: input.isScheduleLater }),
+      ...(input.scheduledAt !== undefined && { scheduledAt: input.scheduledAt }),
+      ...(input.startTime !== undefined && { startTime: input.startTime }),
+      ...(input.endTime !== undefined && { endTime: input.endTime }),
+      ...(input.assignedToId !== undefined && { assignedToId: input.assignedToId }),
+      ...(input.quoteRequired !== undefined && { quoteRequired: input.quoteRequired }),
+      ...(input.quoteTermsConditions !== undefined && { quoteTermsConditions: input.quoteTermsConditions }),
+      ...(input.invoiceTermsConditions !== undefined && { invoiceTermsConditions: input.invoiceTermsConditions }),
+      ...(input.discount !== undefined && { discount: input.discount }),
+      ...(input.discountType !== undefined && { discountType: input.discountType }),
+      ...(jobStatus != null && { jobStatus }),
+    }
+
+    await tx.workOrder.update({ where: { id: workOrderId }, data: updateData })
+
+    if (input.lineItems) {
+      await tx.lineItem.deleteMany({ where: { workOrderId } })
+      if (input.lineItems.length > 0) {
+        await tx.lineItem.createMany({
+          data: input.lineItems.map((li) => ({
+            workOrderId,
+            name: li.name,
+            itemType: li.itemType ?? 'SERVICE',
+            description: li.description ?? null,
+            quantity: li.quantity,
+            price: li.price,
+            cost: li.cost ?? null,
+            priceListItemId: li.priceListItemId ?? null,
+          })),
+        })
+      }
+    }
+
+    await recalculateFinancials(workOrderId, taxPercent, tx)
   })
 
-  if (input.lineItems) {
-    await prisma.lineItem.deleteMany({ where: { workOrderId } })
-    if (input.lineItems.length > 0) {
-      await prisma.lineItem.createMany({
-        data: input.lineItems.map(li => ({
-          workOrderId,
-          name: li.name,
-          itemType: li.itemType ?? 'SERVICE',
-          description: li.description ?? null,
-          quantity: li.quantity,
-          price: li.price,
-          cost: li.cost ?? null,
-          priceListItemId: li.priceListItemId ?? null,
-        })),
-      })
-    }
-  }
-
-  const taxPercent = input.taxPercent ?? (await getDefaultTaxPercent(businessId))
-  await recalculateFinancials(workOrderId, taxPercent)
   return getWorkOrderById(businessId, workOrderId)
 }
-
 export class LineItemNotFoundError extends Error {
   constructor() {
     super('LINE_ITEM_NOT_FOUND')
@@ -440,41 +464,44 @@ export async function addLineItemsToWorkOrder(
   })
   if (!wo) throw new WorkOrderNotFoundError()
 
-  for (const item of items) {
-    if (isFromPriceList(item)) {
-      const pl = await prisma.priceListItem.findFirst({
-        where: { id: item.priceListItemId, businessId },
-      })
-      if (!pl) throw new Error('PRICE_LIST_ITEM_NOT_FOUND')
-      await prisma.lineItem.create({
-        data: {
-          workOrderId,
-          name: pl.name,
-          itemType: pl.itemType,
-          description: pl.description,
-          quantity: item.quantity,
-          price: pl.price,
-          cost: pl.cost,
-          priceListItemId: pl.id,
-        },
-      })
-    } else {
-      await prisma.lineItem.create({
-        data: {
-          workOrderId,
-          name: item.name,
-          itemType: item.itemType ?? 'SERVICE',
-          description: item.description ?? null,
-          quantity: item.quantity,
-          price: item.price,
-          cost: item.cost ?? null,
-          priceListItemId: null,
-        },
-      })
+  await prisma.$transaction(async (tx) => {
+    for (const item of items) {
+      if (isFromPriceList(item)) {
+        const pl = await tx.priceListItem.findFirst({
+          where: { id: item.priceListItemId, businessId },
+        })
+        if (!pl) throw new Error('PRICE_LIST_ITEM_NOT_FOUND')
+        await tx.lineItem.create({
+          data: {
+            workOrderId,
+            name: pl.name,
+            itemType: pl.itemType,
+            description: pl.description,
+            quantity: item.quantity,
+            price: pl.price,
+            cost: pl.cost,
+            priceListItemId: pl.id,
+          },
+        })
+      } else {
+        await tx.lineItem.create({
+          data: {
+            workOrderId,
+            name: item.name,
+            itemType: item.itemType ?? 'SERVICE',
+            description: item.description ?? null,
+            quantity: item.quantity,
+            price: item.price,
+            cost: item.cost ?? null,
+            priceListItemId: null,
+          },
+        })
+      }
     }
-  }
 
-  await recalculateFinancials(workOrderId)
+    await recalculateFinancials(workOrderId, 0, tx)
+  })
+
   return getWorkOrderById(businessId, workOrderId)
 }
 
@@ -528,12 +555,13 @@ export async function deleteWorkOrder(businessId: string, workOrderId: string): 
 }
 
 /** Register payment and recalc balance; set invoice_status=PAID if balance <= 0 (§6.1). */
+
 export async function registerPayment(
   businessId: string,
   workOrderId: string,
   data: {
     amount: number
-    paymentDate: Date
+    paymentDate?: Date | null
     paymentMethod: string
     referenceNumber?: string | null
     note?: string | null
@@ -546,27 +574,31 @@ export async function registerPayment(
   })
   if (!wo) throw new WorkOrderNotFoundError()
 
-  await prisma.payment.create({
-    data: {
-      workOrderId,
-      amount: data.amount,
-      paymentDate: data.paymentDate,
-      paymentMethod: data.paymentMethod as Parameters<typeof prisma.payment.create>[0]['data']['paymentMethod'],
-      referenceNumber: data.referenceNumber ?? null,
-      note: data.note ?? null,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.payment.create({
+      data: {
+        workOrderId,
+        amount: data.amount,
+        paymentDate: data.paymentDate ?? new Date(),
+        paymentMethod: data.paymentMethod as Parameters<typeof prisma.payment.create>[0]['data']['paymentMethod'],
+        referenceNumber: data.referenceNumber ?? null,
+        note: data.note ?? null,
+      },
+    })
+
+    await recalculateFinancials(workOrderId, 0, tx)
+
+    const updated = await tx.workOrder.findUnique({
+      where: { id: workOrderId },
+      select: { balance: true },
+    })
+    if (updated && toNum(updated.balance) <= 0) {
+      await tx.workOrder.update({
+        where: { id: workOrderId },
+        data: { invoiceStatus: 'PAID' },
+      })
+    }
   })
 
-  await recalculateFinancials(workOrderId)
-  const updated = await prisma.workOrder.findUnique({
-    where: { id: workOrderId },
-    select: { balance: true, invoiceStatus: true },
-  })
-  if (updated && toNum(updated.balance) <= 0) {
-    await prisma.workOrder.update({
-      where: { id: workOrderId },
-      data: { invoiceStatus: 'PAID' },
-    })
-  }
   return getWorkOrderById(businessId, workOrderId)
 }

@@ -303,7 +303,7 @@ export const WORK_ORDER_HANDLER: HandlerMapFromRoutes<typeof WORK_ORDER_ROUTES> 
       const body = await c.req.valid('json')
       const workOrder = await registerPayment(businessId, workOrderId, {
         amount: body.amount,
-        paymentDate: body.paymentDate,
+        paymentDate: body.paymentDate ?? new Date(),
         paymentMethod: body.paymentMethod,
         referenceNumber: body.referenceNumber,
         note: body.note,

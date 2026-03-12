@@ -369,6 +369,8 @@ model WorkOrder {
   payments     Payment[]
   attachments  WorkOrderAttachment[]
   linkedTasks  Task[]
+
+  @@unique([businessId, workOrderNumber])
 }
 
 model Payment {
