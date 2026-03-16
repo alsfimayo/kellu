@@ -2,12 +2,14 @@ import { betterAuth } from 'better-auth'
 import { prismaAdapter } from 'better-auth/adapters/prisma'
 import { customSession, openAPI } from 'better-auth/plugins'
 import { UserRole } from '~/generated/prisma'
+import { ORIGINS } from '~/config/origins'
 import prisma from '~/lib/prisma'
 
 export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
+  trustedOrigins: [...ORIGINS, 'http://localhost:8000'],
   database: prismaAdapter(prisma, {
     provider: 'postgresql',
   }),

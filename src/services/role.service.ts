@@ -27,6 +27,17 @@ export function getActionsForResource(resource: string): string[] {
   return Array.from((statement as Record<string, readonly string[]>)[resource] ?? [])
 }
 
+/** All unique actions across all resources (no resource names, actions only). */
+export function getAllActions(): string[] {
+  const actions = new Set<string>()
+  for (const resource of ALL_RESOURCES) {
+    for (const action of getActionsForResource(resource)) {
+      actions.add(action)
+    }
+  }
+  return Array.from(actions).sort()
+}
+
 /** Validate that all permissions in the input are valid resource:action pairs */
 export function validatePermissions(
   permissions: Array<{ resource: string; action: string }>
@@ -97,6 +108,15 @@ export async function createRole(businessId: string, input: CreateRoleInput) {
   await ensureBusinessExists(businessId)
   validatePermissions(input.permissions)
 
+  const resolvedPermissions = await Promise.all(
+    input.permissions.map(async (p) => 
+     prisma.permission.upsert({
+      where: { resource_action: { resource: p.resource, action: p.action } },
+      update: {},
+      create: { resource: p.resource, action: p.action },
+    })
+  ))
+
   const role = await prisma.$transaction(async (tx) => {
     const created = await tx.role.create({
       data: {
@@ -108,28 +128,24 @@ export async function createRole(businessId: string, input: CreateRoleInput) {
       },
     })
 
-    for (const p of input.permissions) {
-      const permission = await tx.permission.upsert({
-        where: { resource_action: { resource: p.resource, action: p.action } },
-        update: {},
-        create: { resource: p.resource, action: p.action },
+   
+      await tx.rolePermission.createMany({
+        data: resolvedPermissions.map(p => ({
+           roleId: created.id,
+            permissionId: p.id })),
       })
-      await tx.rolePermission.create({
-        data: { roleId: created.id, permissionId: permission.id },
+      return tx.role.findUnique({
+        where: { id: created.id },
+        include: {
+          permissions: { include: { permission: true } },
+          _count: { select: { members: true } },
+        },
       })
-    }
-
-    // ✅ Query inside the transaction so newly created records are visible
-    return tx.role.findUnique({
-      where: { id: created.id },
-      include: {
-        permissions: { include: { permission: true } },
-        _count: { select: { members: true } },
-      },
     })
-  })
-
+  
   return role
+
+  
 }
 
 /** Update a custom role. System roles cannot be modified. */

@@ -7,6 +7,7 @@ import {
   updateRole,
   deleteRole,
   getPermissionMatrix,
+  getAllActions,
   RoleNotFoundError,
   RoleInUseError,
   InvalidPermissionError,
@@ -36,6 +37,13 @@ export const ROLE_HANDLER: HandlerMapFromRoutes<typeof ROLE_ROUTES> = {
     if (!user) return c.json({ message: "Unauthorized" }, HttpStatusCodes.UNAUTHORIZED)
     const matrix = getPermissionMatrix()
     return c.json({ message: "Permission matrix retrieved", success: true, data: matrix }, HttpStatusCodes.OK)
+  },
+
+  getPermissionActions: async (c) => {
+    const user = c.get("user")
+    if (!user) return c.json({ message: "Unauthorized" }, HttpStatusCodes.UNAUTHORIZED)
+    const actions = getAllActions()
+    return c.json({ message: "Permission actions retrieved", success: true, data: actions }, HttpStatusCodes.OK)
   },
 
   getById: async (c) => {

@@ -56,6 +56,8 @@ const PermissionMatrixSchema = z.array(
   })
 )
 
+const PermissionActionsSchema = z.array(z.string())
+
 export const ROLE_ROUTES = {
   list: createRoute({
     method: "get",
@@ -77,6 +79,17 @@ export const ROLE_ROUTES = {
     summary: "Get all available resources and actions (for permission builder UI)",
     responses: {
       [HttpStatusCodes.OK]: jsonContent(zodResponseSchema(PermissionMatrixSchema), "OK"),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), "Unauthorized"),
+    },
+  }),
+
+  getPermissionActions: createRoute({
+    method: "get",
+    tags: ["Roles"],
+    path: "/permissions/actions",
+    summary: "Get all available actions only (no resources)",
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(zodResponseSchema(PermissionActionsSchema), "OK"),
       [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), "Unauthorized"),
     },
   }),

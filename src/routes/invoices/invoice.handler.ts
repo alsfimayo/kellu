@@ -1,0 +1,218 @@
+/**
+ * Invoice API handlers – §6.1, §6.2.5, §7.
+ * Permission checks: invoices read/create/update.
+ */
+
+import * as HttpStatusCodes from 'stoker/http-status-codes'
+import type { INVOICE_ROUTES } from '~/routes/invoices/invoice.routes'
+import {
+  listInvoices,
+  getInvoiceOverview,
+  getInvoiceById,
+  createInvoice,
+  sendInvoice,
+  InvoiceNotFoundError,
+  ClientNotFoundError,
+} from '~/services/invoice.service'
+import { BusinessNotFoundError, getBusinessIdByUserId } from '~/services/business.service'
+import { hasPermission } from '~/services/permission.service'
+import type { HandlerMapFromRoutes } from '~/types'
+
+export const INVOICE_HANDLER: HandlerMapFromRoutes<typeof INVOICE_ROUTES> = {
+  list: async (c) => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found for this user' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'invoices', 'read'))) {
+        return c.json(
+          { message: 'You do not have permission to list invoices' },
+          HttpStatusCodes.FORBIDDEN
+        )
+      }
+      const query = c.req.valid('query')
+      const page = query.page ? Number.parseInt(query.page, 10) : 1
+      const limit = query.limit ? Number.parseInt(query.limit, 10) : 10
+      const result = await listInvoices(businessId, {
+        search: query.search,
+        status: query.status,
+        sortBy: query.sortBy,
+        order: query.order,
+        page,
+        limit,
+      })
+      return c.json(
+        { message: 'Invoices retrieved successfully', success: true, data: result },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error listing invoices:', error)
+      return c.json(
+        { message: 'Failed to retrieve invoices' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  overview: async (c) => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found for this user' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'invoices', 'read'))) {
+        return c.json(
+          { message: 'You do not have permission to view invoice overview' },
+          HttpStatusCodes.FORBIDDEN
+        )
+      }
+      const overview = await getInvoiceOverview(businessId)
+      return c.json(
+        { message: 'Invoice overview retrieved successfully', success: true, data: overview },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error fetching invoice overview:', error)
+      return c.json(
+        { message: 'Failed to retrieve invoice overview' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  getById: async (c) => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found for this user' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'invoices', 'read'))) {
+        return c.json(
+          { message: 'You do not have permission to view this invoice' },
+          HttpStatusCodes.FORBIDDEN
+        )
+      }
+      const { invoiceId } = c.req.valid('param')
+      const invoice = await getInvoiceById(businessId, invoiceId)
+      return c.json(
+        { message: 'Invoice retrieved successfully', success: true, data: invoice },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof InvoiceNotFoundError) {
+        return c.json({ message: 'Invoice not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error fetching invoice:', error)
+      return c.json(
+        { message: 'Failed to retrieve invoice' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  create: async (c) => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found for this user' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'invoices', 'create'))) {
+        return c.json(
+          { message: 'You do not have permission to create invoices' },
+          HttpStatusCodes.FORBIDDEN
+        )
+      }
+      const body = await c.req.valid('json')
+      const invoice = await createInvoice(businessId, {
+        title: body.title,
+        clientId: body.clientId,
+        address: body.address,
+        assignedToId: body.assignedToId,
+        workOrderId: body.workOrderId,
+        lineItems: body.lineItems,
+      })
+      return c.json(
+        { message: 'Invoice created successfully', success: true, data: invoice },
+        HttpStatusCodes.CREATED
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (error instanceof ClientNotFoundError) {
+        return c.json({ message: 'Client not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error creating invoice:', error)
+      return c.json(
+        { message: 'Failed to create invoice' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  sendInvoice: async (c) => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found for this user' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'invoices', 'update'))) {
+        return c.json(
+          { message: 'You do not have permission to send invoices' },
+          HttpStatusCodes.FORBIDDEN
+        )
+      }
+      const { invoiceId } = c.req.valid('param')
+      const invoice = await sendInvoice(businessId, invoiceId)
+      return c.json(
+        { message: 'Invoice sent successfully', success: true, data: invoice },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof InvoiceNotFoundError) {
+        return c.json({ message: 'Invoice not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (error instanceof Error && error.message.includes('already sent')) {
+        return c.json({ message: error.message }, HttpStatusCodes.BAD_REQUEST)
+      }
+      console.error('Error sending invoice:', error)
+      return c.json(
+        { message: 'Failed to send invoice' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+}

@@ -1,6 +1,7 @@
 import { createRoute, z } from '@hono/zod-openapi'
 import * as HttpStatusCodes from 'stoker/http-status-codes'
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers'
+import { TAGS } from '~/config/tags'
 import { zodResponseSchema } from '~/lib/zod-helper'
 
 /** Kelly Figma: Company Name, Business Email, Status, Total Jobs, Revenue, Users, Last Login */
@@ -214,7 +215,7 @@ export const ToggleStatusBodySchema = z
 export const BUSINESS_ROUTES = {
   getBusinesses: createRoute({
     method: 'get',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/',
     summary: 'Get all businesses',
     request: { query: BusinessQuerySchema },
@@ -227,7 +228,7 @@ export const BUSINESS_ROUTES = {
 
   getBusiness: createRoute({
     method: 'get',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/{id}',
     summary: 'Get business by ID',
     request: { params: BusinessParamsSchema },
@@ -241,7 +242,7 @@ export const BUSINESS_ROUTES = {
 
   createBusiness: createRoute({
     method: 'post',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/',
     summary: 'Create business',
     request: { body: jsonContentRequired(CreateBusinessBodySchema, 'Create business payload') },
@@ -258,7 +259,7 @@ export const BUSINESS_ROUTES = {
 
   updateBusiness: createRoute({
     method: 'patch',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/{id}',
     summary: 'Update business',
     request: {
@@ -275,7 +276,7 @@ export const BUSINESS_ROUTES = {
 
   updateBusinessCommission: createRoute({
     method: 'patch',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/{id}/commission',
     summary: 'Update commission (Kelly: stub, no Commission model)',
     request: {
@@ -297,7 +298,7 @@ export const BUSINESS_ROUTES = {
 
   getBusinessClients: createRoute({
     method: 'get',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/{id}/clients',
     summary: 'Get business clients (Kelly)',
     request: { params: BusinessParamsSchema, query: BusinessQuerySchema },
@@ -311,7 +312,7 @@ export const BUSINESS_ROUTES = {
 
   getBusinessJobs: createRoute({
     method: 'get',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/{id}/jobs',
     summary: 'Get business work orders/jobs (Kelly)',
     request: { params: BusinessParamsSchema, query: BusinessQuerySchema },
@@ -325,7 +326,7 @@ export const BUSINESS_ROUTES = {
 
   getBusinessClientsWithJobs: createRoute({
     method: 'get',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/{id}/clients-with-jobs',
     summary: 'Get business clients with work order count (Kelly)',
     request: { params: BusinessParamsSchema, query: BusinessQuerySchema },
@@ -342,7 +343,7 @@ export const BUSINESS_ROUTES = {
 
   toggleBusinessStatus: createRoute({
     method: 'patch',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/{id}/status',
     summary: 'Toggle business status',
     request: {
@@ -362,7 +363,7 @@ export const BUSINESS_ROUTES = {
 
   suspendBusiness: createRoute({
     method: 'post',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/{id}/suspend',
     summary: 'Suspend business',
     request: { params: BusinessParamsSchema },
@@ -379,7 +380,7 @@ export const BUSINESS_ROUTES = {
 
   unsuspendBusiness: createRoute({
     method: 'post',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/{id}/unsuspend',
     summary: 'Unsuspend business',
     request: { params: BusinessParamsSchema },
@@ -396,7 +397,7 @@ export const BUSINESS_ROUTES = {
 
   sendEmail: createRoute({
     method: 'post',
-    tags: ['Business'],
+        tags: [TAGS.business],
     path: '/{id}/send-email',
     summary: 'Send email to business',
     request: {
@@ -431,7 +432,7 @@ export const BUSINESS_ROUTES = {
 
   sendReminder: createRoute({
     method: 'post',
-    tags: ['Business'],
+    tags: [TAGS.business],
     path: '/{id}/reminder',
     summary: 'Send reminder to business',
     request: { params: BusinessParamsSchema },
