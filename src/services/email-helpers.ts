@@ -12,9 +12,15 @@
 import type { EmailTemplate } from '~/lib/email-render'
 import { emailSubjects, renderEmailTemplate } from '~/lib/email-render'
 import { appEventEmitter } from '~/lib/event-emitter'
-import { registerEmailListeners as baseRegister } from '~/services/email.service'
+import { emailService, registerEmailListeners as baseRegister } from '~/services/email.service'
 
-const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:3001'
+const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:3000'
+
+/** Build login URL that redirects to business dashboard after sign-in. */
+export function getDashboardLoginUrl(): string {
+  const base = FRONTEND_URL.replace(/\/$/, '')
+  return `${base}/login?redirect=${encodeURIComponent('/dashboard')}`
+}
 
 const NO_REPLY_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'noresponder@notificaciones.kellu.co'
 const KELLU_FROM_NAME = process.env.RESEND_KELLU_FROM_NAME ?? 'Kellu'
@@ -23,8 +29,8 @@ const KELLU_REPLY_TO = process.env.RESEND_KELLU_REPLY_TO ?? 'equipo@kellu.co'
 /** From header for Kellu → Client (system emails). */
 const KELLU_TO_CLIENT_FROM = `${KELLU_FROM_NAME} <${NO_REPLY_EMAIL}>`
 
-/** Build From header for Client → Their Customers (company name as sender). */
-function clientToCustomerFrom(companyName: string): string {
+/** Build From header for Client → Their Customers. Uses verified sender; Reply-To is company email. */
+export function clientToCustomerFrom(companyName: string): string {
   const name = (companyName || 'Kellu').trim()
   return `${name} <${NO_REPLY_EMAIL}>`
 }
@@ -62,8 +68,66 @@ export async function sendBusinessInvitationEmail(
   })
 }
 
+export interface SendWorkOrderCreatedEmailParams {
+  to: string
+  clientName: string
+  businessName: string
+  companyReplyTo: string
+  workOrderNumber: string
+  title: string
+  address: string
+  date: string
+  timeRange: string
+  assignedTeamMemberName: string
+  lineItemsSummary: string
+  total?: string
+  subject?: string
+}
+
 /**
- * Send team member invitation with login credentials and optional description (Kellu → Team member).
+ * Send work order created email to customer (Client → Their Customers).
+ * From: {businessName} <noresponder@...>, Reply-To: companyReplyTo.
+ * Used when a work order is created.
+ */
+export function sendWorkOrderCreatedEmail(params: SendWorkOrderCreatedEmailParams): void {
+  const {
+    to,
+    clientName,
+    businessName,
+    companyReplyTo,
+    workOrderNumber,
+    title,
+    address,
+    date,
+    timeRange,
+    assignedTeamMemberName,
+    lineItemsSummary,
+    total,
+    subject,
+  } = params
+  appEventEmitter.emit('mail:send-template', {
+    to,
+    template: 'work-order-created' as EmailTemplate,
+    payload: {
+      clientName,
+      businessName,
+      workOrderNumber,
+      title,
+      address,
+      date,
+      timeRange,
+      assignedTeamMemberName,
+      lineItemsSummary,
+      total,
+    },
+    from: clientToCustomerFrom(businessName),
+    replyTo: companyReplyTo,
+    subjectOverride: subject,
+  })
+}
+
+/**
+ * Send team member invitation with login credentials, dashboard link, role and permissions (Kellu → Team member).
  */
 export interface SendTeamMemberInvitationParams {
   to: string
@@ -74,18 +138,20 @@ export interface SendTeamMemberInvitationParams {
   password: string
   /** Optional text describing the member's role or what they can do (included in email body). */
   description?: string
+  /** Role permissions for display in email (e.g. [{ resource: 'workorders', action: 'read' }]). */
+  permissions?: Array<{ resource: string; action: string }>
 }
 
 export async function sendTeamMemberInvitationEmail(
   params: SendTeamMemberInvitationParams
 ): Promise<void> {
-  const { to, memberName, businessName, roleName, email, password, description } = params
-  const loginUrl = `${FRONTEND_URL}/login`
+  const { to, memberName, businessName, roleName, email, password, description, permissions } = params
+  const loginUrl = getDashboardLoginUrl()
 
-  appEventEmitter.emit('mail:send-template', {
-    to,
-    template: 'add-team-member' as EmailTemplate,
-    payload: {
+  const subject = (emailSubjects as Record<string, string>)['add-team-member']
+  const html = await renderEmailTemplate(
+    'add-team-member' as never,
+    {
       memberName,
       businessName,
       roleName,
@@ -93,7 +159,14 @@ export async function sendTeamMemberInvitationEmail(
       password,
       loginUrl,
       description: description ?? undefined,
-    },
+      permissions: permissions ?? [],
+    }
+  )
+
+  await emailService.send({
+    to,
+    subject,
+    html,
     from: KELLU_TO_CLIENT_FROM,
     replyTo: KELLU_REPLY_TO,
   })
@@ -123,6 +196,53 @@ export function sendClientProfileUpdateEmail(params: SendClientProfileUpdatePara
   })
 }
 
+export interface SendBookingConfirmationParams {
+  to: string
+  clientName: string
+  serviceTitle: string
+  date: string
+  timeRange: string
+  assignedTeamMemberName: string
+  businessName: string
+  companyReplyTo: string
+  /** Override default subject (e.g. "Booking Confirmation - Plumbing Repair - Jan 15, 2024") */
+  subject?: string
+}
+
+/**
+ * Send booking confirmation email to customer (Client → Their Customers).
+ * From: {businessName} <noresponder@...>, Reply-To: companyReplyTo.
+ * Used when business owner confirms a booking from the work order screen.
+ */
+export function sendBookingConfirmationEmail(params: SendBookingConfirmationParams): void {
+  const {
+    to,
+    clientName,
+    serviceTitle,
+    date,
+    timeRange,
+    assignedTeamMemberName,
+    businessName,
+    companyReplyTo,
+    subject,
+  } = params
+  appEventEmitter.emit('mail:send-template', {
+    to,
+    template: 'booking-confirmation' as EmailTemplate,
+    payload: {
+      clientName,
+      serviceTitle,
+      date,
+      timeRange,
+      assignedTeamMemberName,
+      businessName,
+    },
+    from: clientToCustomerFrom(businessName),
+    replyTo: companyReplyTo,
+    subjectOverride: subject,
+  })
+}
+
 /**
  * Register email listeners: base (mail:send) + template rendering (mail:send-template).
  */
@@ -137,10 +257,11 @@ export function registerEmailListeners(): void {
       payload: Record<string, unknown>
       from?: string
       replyTo?: string | string[]
+      subjectOverride?: string
     }) => {
       try {
         const html = await renderEmailTemplate(data.template, data.payload)
-        const subject = emailSubjects[data.template]
+        const subject = data.subjectOverride ?? emailSubjects[data.template]
         appEventEmitter.emitSendMail({
           to: data.to,
           subject,

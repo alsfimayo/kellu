@@ -3,19 +3,26 @@
 import { render } from '@react-email/components'
 import { AddBusinessEmail } from '../emails/admin/add.business'
 import { AddTeamMemberEmail } from '../emails/admin/add.team-member'
+import { BookingConfirmationEmail } from '../emails/booking-confirmation'
 import { ClientProfileUpdateEmail } from '../emails/client-profile-update'
 import { EmailVerification } from '../emails/email.verification'
 import { WelcomeEmail } from '../emails/welcome'
+import { WorkOrderCreatedEmail } from '../emails/work-order-created'
 
-const APP_NAME = Bun.env.APP_NAME ?? 'Kelly'
+const APP_NAME =
+  (typeof globalThis !== 'undefined' &&
+    (globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env?.APP_NAME) ??
+  'Kelly'
 
-/** Kelly: only templates we use for business onboarding & auth */
+/** Kelly: business onboarding, auth, and client-facing (booking confirmation, work order created, etc.) */
 export type EmailTemplate =
   | 'add-business'
   | 'add-team-member'
   | 'welcome'
   | 'email-verification'
   | 'client-profile-update'
+  | 'booking-confirmation'
+  | 'work-order-created'
 
 export const emailSubjects: Record<EmailTemplate, string> = {
   'add-business': `${APP_NAME} - Your Business Portal Login`,
@@ -23,6 +30,8 @@ export const emailSubjects: Record<EmailTemplate, string> = {
   welcome: `Welcome to ${APP_NAME}!`,
   'email-verification': 'Verify your email address',
   'client-profile-update': `${APP_NAME} - Update to your client profile`,
+  'booking-confirmation': 'Booking Confirmation',
+  'work-order-created': 'New work order created',
 } as const
 
 export async function renderEmailTemplate(
@@ -44,7 +53,7 @@ export async function renderEmailTemplate(
       )
     }
     case 'add-team-member': {
-      const { memberName, businessName, roleName, email, password, loginUrl, description } = data
+      const { memberName, businessName, roleName, email, password, loginUrl, description, permissions } = data
       return render(
         <AddTeamMemberEmail
           memberName={memberName}
@@ -54,6 +63,7 @@ export async function renderEmailTemplate(
           password={password}
           loginUrl={loginUrl}
           description={description}
+          permissions={Array.isArray(permissions) ? permissions : []}
         />
       )
     }
@@ -72,6 +82,47 @@ export async function renderEmailTemplate(
           clientName={clientName}
           businessName={businessName}
           isUpdate={isUpdate}
+        />
+      )
+    }
+    case 'booking-confirmation': {
+      const { clientName, serviceTitle, date, timeRange, assignedTeamMemberName, businessName } = data
+      return render(
+        <BookingConfirmationEmail
+          clientName={clientName}
+          serviceTitle={serviceTitle}
+          date={date}
+          timeRange={timeRange}
+          assignedTeamMemberName={assignedTeamMemberName}
+          businessName={businessName}
+        />
+      )
+    }
+    case 'work-order-created': {
+      const {
+        clientName,
+        businessName,
+        workOrderNumber,
+        title,
+        address,
+        date,
+        timeRange,
+        assignedTeamMemberName,
+        lineItemsSummary,
+        total,
+      } = data
+      return render(
+        <WorkOrderCreatedEmail
+          clientName={clientName}
+          businessName={businessName}
+          workOrderNumber={workOrderNumber}
+          title={title}
+          address={address}
+          date={date}
+          timeRange={timeRange}
+          assignedTeamMemberName={assignedTeamMemberName}
+          lineItemsSummary={lineItemsSummary ?? ''}
+          total={total}
         />
       )
     }

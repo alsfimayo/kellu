@@ -291,12 +291,27 @@ export async function addMember(businessId: string, input: AddMemberInput): Prom
     return newMember
   })
 
-  // Send invitation email outside the transaction (non-blocking on failure)
+  // Send invitation email with login credentials, dashboard link, and role permissions
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: { name: true },
   })
-  const roleName = member.role.displayName ?? member.role.name
+  const roleWithPermissions = await prisma.role.findUnique({
+    where: { id: member.roleId },
+    select: {
+      displayName: true,
+      name: true,
+      permissions: {
+        select: { permission: { select: { resource: true, action: true } } },
+      },
+    },
+  })
+  const roleName = roleWithPermissions?.displayName ?? roleWithPermissions?.name ?? member.role.name
+  const permissions =
+    roleWithPermissions?.permissions.map((rp) => ({
+      resource: rp.permission.resource,
+      action: rp.permission.action,
+    })) ?? []
 
   try {
     await sendTeamMemberInvitationEmail({
@@ -307,6 +322,7 @@ export async function addMember(businessId: string, input: AddMemberInput): Prom
       email: input.email,
       password: input.password,
       description: input.emailDescription ?? undefined,
+      permissions,
     })
   } catch (err) {
     console.error('Failed to send team member invitation email:', err)

@@ -7,6 +7,7 @@ import roleRouter from '~/routes/roles'
 import teamRouter from '~/routes/team'
 import router from '~/routes/test'
 import workorderRouter from '~/routes/workorders'
+import quoteRouter from '~/routes/quotes'
 import type { AppOpenAPI } from '~/types'
 
 export function registerRoutes(app: AppOpenAPI) {
@@ -20,4 +21,5 @@ export function registerRoutes(app: AppOpenAPI) {
     .route('/api/expenses', expenseRouter)
     .route('/api/roles', roleRouter)
     .route('/api/team', teamRouter)
+    .route('/api/quotes', quoteRouter)
 }

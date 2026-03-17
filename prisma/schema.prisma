@@ -30,7 +30,6 @@ enum ClientStatus {
   ACTIVE
   ARCHIVED
   FOLLOW_UP
-  ALL
 }
 
 enum QuoteStatus {
@@ -80,10 +79,6 @@ enum ItemType {
   PRODUCT
 }
 
-enum WorkOrderType {
-  WORK_ORDER
-  TASK
-}
 
 enum ReminderType {
   QUOTE_FOLLOW_UP_48H
@@ -113,7 +108,8 @@ enum TemplateType {
 enum LeadSource {
   Website
   SocialMedia
-  All
+  Referral      // common addition
+  Other
 }
 
 // ─────────────────────────────────────────────
@@ -138,8 +134,6 @@ model User {
   isOwner           Boolean   @default(false)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
-  roleId            String?
-  dynamicRole       Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
   role              UserRole  @default(BUSINESS_OWNER)
   isActive          Boolean   @default(true)
   lastLoginAt       DateTime?
@@ -169,7 +163,7 @@ model Business {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
+  rutNumber String?
   ownerId  String?
   owner    User?   @relation("BusinessOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   countyId String?
@@ -181,8 +175,7 @@ model Business {
   tasks           Task[]
   expenses        Expense[]
   priceListItems  PriceListItem[]
-  invoices        Invoice[]           // ✅ back-relation
-
+  invoices        Invoice[]
   teamMembers     Member[]
   teamInvitations TeamInvitation[]
   roles           Role[]
@@ -212,7 +205,7 @@ model Member {
 
   assignedTasks      Task[]      @relation("TaskAssignee")
   assignedWorkOrders WorkOrder[] @relation("WorkOrderAssignee")
-  assignedInvoices   Invoice[]   // ✅ back-relation
+  assignedInvoices   Invoice[]
 
   @@unique([userId, businessId])
   @@map("Member")
@@ -251,8 +244,6 @@ model Role {
   isSystem    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
-  users       User[]
   businessId  String
   business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -313,7 +304,7 @@ model Client {
 
   workOrders   WorkOrder[]
   tasks        Task[]
-  invoices     Invoice[]     // ✅ back-relation
+  invoices     Invoice[]
   reminderLogs ReminderLog[]
 }
 
@@ -359,10 +350,11 @@ model WorkOrder {
   quoteWhatsappStatus  String?
   quoteObservations    String?     @db.Text
   quoteTermsConditions String?     @db.Text
-
+  quoteVersion  Int  @default(1)
   // Job workflow
   jobStatus                 JobStatus @default(UNSCHEDULED)
   bookingConfirmationSentAt DateTime?
+  confirmationReminderSentAt DateTime?
   confirmedAt               DateTime?
   onMyWayAt                 DateTime?
   startedAt                 DateTime?
@@ -398,8 +390,8 @@ model WorkOrder {
   payments    Payment[]
   attachments WorkOrderAttachment[]
   linkedTasks Task[]
-  invoices    Invoice[]             // ✅ back-relation
-
+  invoices    Invoice[]
+  reminderLogs ReminderLog[]
   @@unique([businessId, workOrderNumber])
 }
 
@@ -412,7 +404,7 @@ model Invoice {
   invoiceNumber String?
   title         String
   address       String?
-
+  version  Int  @default(1)
   status      InvoiceStatus @default(NOT_SENT)
   sentAt      DateTime?
   dueAt       DateTime?
@@ -451,6 +443,7 @@ model Invoice {
   @@unique([businessId, invoiceNumber])
 }
 
+
 // ─────────────────────────────────────────────
 // PAYMENT  (polymorphic: WorkOrder OR Invoice)
 // ─────────────────────────────────────────────
@@ -478,7 +471,7 @@ model Payment {
 }
 
 // ─────────────────────────────────────────────
-// LINE ITEM  (polymorphic: WorkOrder OR Invoice)
+// LINE ITEM  (polymorphic: WorkOrder OR Invoice OR Quote)
 // ─────────────────────────────────────────────
 
 model LineItem {
@@ -493,14 +486,11 @@ model LineItem {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  // existing — unchanged
   workOrderId String?
   workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
 
-  // ✅ NEW — can belong to an Invoice
   invoiceId String?
   invoice   Invoice?   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-
   priceListItemId String?
   priceListItem   PriceListItem? @relation(fields: [priceListItemId], references: [id], onDelete: SetNull)
 
@@ -536,7 +526,8 @@ model Task {
   instructions String?  @db.Text
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
   scheduledAt DateTime?
   startTime   String?
   endTime     String?
@@ -618,7 +609,8 @@ model BusinessSettings {
   whatsappSender           String?
   whatsappEnabled          Boolean @default(false)
   sendQuoteWhatsappDefault Boolean @default(false)
-
+  defaultTaxRate  Decimal?  @db.Decimal(5, 2)
+  rutNumber       String? 
   notificationEmail              String?
   replyToEmail                   String?
   sendTeamPhotosWithConfirmation Boolean @default(false)
@@ -682,7 +674,8 @@ model ReminderLog {
   channel      NotificationChannel
   entityType   String
   entityId     String
-
+  workOrderId String?
+  workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
   clientId   String?
   client     Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
   businessId String

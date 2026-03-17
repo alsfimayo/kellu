@@ -456,6 +456,22 @@ export const WORK_ORDER_ROUTES = {
     },
   }),
 
+  sendBookingConfirmation: createRoute({
+    method: 'post',
+    tags: ['Workorders'],
+    path: '/{workOrderId}/send-booking-confirmation',
+    summary: 'Send booking confirmation email to client (§6.2.3). Sets bookingConfirmationSentAt.',
+    request: { params: WorkOrderParamsSchema },
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(zodResponseSchema(WorkOrderDetailResponseSchema), 'Booking confirmation sent'),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Work order not found'),
+      [HttpStatusCodes.BAD_REQUEST]: jsonContent(zodResponseSchema(), 'Client has no email'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
+
   addLineItems: createRoute({
     method: 'post',
     tags: ['Workorders'],

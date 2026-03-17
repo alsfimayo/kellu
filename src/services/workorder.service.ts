@@ -8,6 +8,7 @@ import { Prisma } from '~/generated/prisma'
 import type { DiscountType, InvoiceStatus, JobStatus, QuoteStatus } from '~/generated/prisma'
 import prisma from '~/lib/prisma'
 import { BusinessNotFoundError } from '~/services/business.service'
+import { sendBookingConfirmationEmail, sendWorkOrderCreatedEmail } from '~/services/email-helpers'
 
 export class WorkOrderNotFoundError extends Error {
   constructor() {
@@ -351,7 +352,54 @@ export async function createWorkOrder(businessId: string, input: CreateWorkOrder
     return created
   })
 
-  return getWorkOrderById(businessId, wo.id)
+  const result = await getWorkOrderById(businessId, wo.id)
+  const clientEmail = result.client?.email?.trim()
+  if (clientEmail) {
+    try {
+      const woForEmail = await prisma.workOrder.findFirst({
+        where: { id: wo.id, businessId },
+        include: {
+          client: { select: { name: true, email: true } },
+          assignedTo: { include: { user: { select: { name: true } } } },
+          business: { include: { settings: { select: { replyToEmail: true } } } },
+          lineItems: true,
+        },
+      })
+      if (woForEmail?.client?.email && woForEmail.business) {
+        const companyReplyTo =
+          woForEmail.business.settings?.replyToEmail ?? woForEmail.business.email
+        const assignedName = woForEmail.assignedTo?.user?.name ?? 'Our team'
+        const dateStr = formatBookingDate(woForEmail.scheduledAt)
+        const timeRangeStr = formatTimeRange(woForEmail.startTime, woForEmail.endTime)
+        const lineItemsSummary = woForEmail.lineItems
+          .map(
+            (li) =>
+              `${li.name} x ${li.quantity} @ ${Number(li.price)} = ${Number(li.quantity) * Number(li.price)}`
+          )
+          .join('\n')
+        const totalStr =
+          woForEmail.total != null ? `$${Number(woForEmail.total).toFixed(2)}` : undefined
+        sendWorkOrderCreatedEmail({
+          to: woForEmail.client.email,
+          clientName: woForEmail.client.name,
+          businessName: woForEmail.business.name,
+          companyReplyTo,
+          workOrderNumber: woForEmail.workOrderNumber ?? `#${woForEmail.id}`,
+          title: woForEmail.title,
+          address: woForEmail.address ?? '',
+          date: dateStr,
+          timeRange: timeRangeStr,
+          assignedTeamMemberName: assignedName,
+          lineItemsSummary,
+          total: totalStr,
+        })
+      }
+    } catch (e) {
+      console.error('[WORK_ORDER] Failed to send work order created email:', e)
+    }
+  }
+
+  return result
 }
 
 /** Update work order (§6.3). Recalculates financials and can re-derive job status. */
@@ -423,6 +471,79 @@ export async function updateWorkOrder(
 
   return getWorkOrderById(businessId, workOrderId)
 }
+
+/** Format date for email (e.g. "January 15, 2024"). */
+function formatBookingDate(d: Date | null): string {
+  if (!d) return 'To be confirmed'
+  return d.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
+/** Format time range (e.g. "09:00 - 11:00"). */
+function formatTimeRange(start: string | null, end: string | null): string {
+  if (!start && !end) return 'To be confirmed'
+  if (start && end) return `${start} - ${end}`
+  return start ?? end ?? 'To be confirmed'
+}
+
+/**
+ * Send booking confirmation email to the work order's client (§6.2.3).
+ * Sets bookingConfirmationSentAt. Client must have an email.
+ */
+export async function sendBookingConfirmation(
+  businessId: string,
+  workOrderId: string,
+  options?: { subject?: string }
+) {
+  await ensureBusinessExists(businessId)
+
+  const wo = await prisma.workOrder.findFirst({
+    where: { id: workOrderId, businessId },
+    include: {
+      client: { select: { id: true, name: true, email: true } },
+      assignedTo: { include: { user: { select: { name: true } } } },
+      business: { include: { settings: { select: { replyToEmail: true } } } },
+    },
+  })
+  if (!wo) throw new WorkOrderNotFoundError()
+
+  const clientEmail = wo.client.email?.trim()
+  if (!clientEmail) {
+    throw new Error('Client has no email address. Add an email to the client to send booking confirmation.')
+  }
+
+  const companyReplyTo = wo.business.settings?.replyToEmail ?? wo.business.email
+  const assignedTeamMemberName = wo.assignedTo?.user?.name ?? 'Our team'
+  const dateStr = formatBookingDate(wo.scheduledAt)
+  const timeRangeStr = formatTimeRange(wo.startTime, wo.endTime)
+
+  const subject =
+    options?.subject ??
+    `Booking Confirmation - ${wo.title} - ${wo.scheduledAt ? formatBookingDate(wo.scheduledAt) : 'TBC'}`
+
+  sendBookingConfirmationEmail({
+    to: clientEmail,
+    clientName: wo.client.name,
+    serviceTitle: wo.title,
+    date: dateStr,
+    timeRange: timeRangeStr,
+    assignedTeamMemberName,
+    businessName: wo.business.name,
+    companyReplyTo,
+    subject,
+  })
+
+  await prisma.workOrder.update({
+    where: { id: workOrderId },
+    data: { bookingConfirmationSentAt: new Date() },
+  })
+
+  return getWorkOrderById(businessId, workOrderId)
+}
+
 export class LineItemNotFoundError extends Error {
   constructor() {
     super('LINE_ITEM_NOT_FOUND')

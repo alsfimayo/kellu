@@ -11,6 +11,8 @@ export interface AddTeamMemberEmailProps {
   password: string
   loginUrl: string
   description?: string
+  /** Permissions for the role (e.g. [{ resource: 'workorders', action: 'read' }]). */
+  permissions?: Array<{ resource: string; action: string }>
 }
 
 const credentialBox = {
@@ -21,6 +23,21 @@ const credentialBox = {
   margin: '20px 0',
 }
 
+const permissionsBox = {
+  backgroundColor: '#f0fdf4',
+  border: '1px solid #bbf7d0',
+  borderRadius: '8px',
+  padding: '16px 20px',
+  margin: '16px 0',
+}
+
+const permissionItem = {
+  color: '#166534',
+  fontSize: '14px',
+  lineHeight: '22px',
+  margin: '4px 0',
+}
+
 export const AddTeamMemberEmail = ({
   memberName,
   businessName,
@@ -29,7 +46,10 @@ export const AddTeamMemberEmail = ({
   password,
   loginUrl,
   description,
+  permissions = [],
 }: AddTeamMemberEmailProps) => {
+  const hasPermissions = permissions && permissions.length > 0
+
   return (
     <EmailLayout preview={`You've been added to ${businessName} as ${roleName}`}>
       <Section style={emailStyles.content}>
@@ -46,8 +66,21 @@ export const AddTeamMemberEmail = ({
           ) : null}
         </Text>
 
+        {hasPermissions ? (
+          <Section style={permissionsBox}>
+            <Text style={{ ...emailStyles.cardHeading, marginBottom: '12px', fontSize: '16px' }}>
+              Your permissions
+            </Text>
+            {permissions.map((p, i) => (
+              <Text key={i} style={permissionItem}>
+                • {p.resource}: {p.action}
+              </Text>
+            ))}
+          </Section>
+        ) : null}
+
         <Text style={{ ...emailStyles.text, marginTop: '16px' }}>
-          Use the credentials below to log in to the portal:
+          Use the credentials below to log in to the business dashboard:
         </Text>
 
         <Section style={credentialBox}>
@@ -61,13 +94,13 @@ export const AddTeamMemberEmail = ({
 
         <Section style={emailStyles.buttonContainer}>
           <Button href={loginUrl} style={emailStyles.button}>
-            Log in to the portal
+            Log in to the business dashboard
           </Button>
         </Section>
 
         <Text style={{ ...emailStyles.text, marginTop: '16px', color: '#64748b', fontSize: '14px' }}>
-          You can update your password after logging in. If you have questions, contact your business
-          admin or reply to this email.
+          After logging in you will be taken to the dashboard. You can update your password in
+          settings. If you have questions, contact your business admin or reply to this email.
         </Text>
       </Section>
     </EmailLayout>

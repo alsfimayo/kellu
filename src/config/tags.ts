@@ -4,6 +4,7 @@ export const TAGS = {
   expenses: 'Expenses',
   priceList: 'Price List',
   invoices: 'Invoices',
+  quotes: 'Quotes',
   clients: 'Clients',
   users: 'Users',
   roles: 'Roles',

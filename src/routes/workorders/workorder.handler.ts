@@ -18,6 +18,7 @@ import {
   getWorkOrderOverview,
   listWorkOrders,
   registerPayment,
+  sendBookingConfirmation,
   updateWorkOrder,
   ClientNotFoundError,
   LineItemNotFoundError,
@@ -373,6 +374,56 @@ export const WORK_ORDER_HANDLER: HandlerMapFromRoutes<typeof WORK_ORDER_ROUTES> 
       console.error('Error registering payment:', error)
       return c.json(
         { message: 'Failed to register payment' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  sendBookingConfirmation: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found for this user' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'workorders', 'update'))) {
+        return c.json(
+          { message: 'You do not have permission to send booking confirmation' },
+          HttpStatusCodes.FORBIDDEN
+        )
+      }
+      const { workOrderId } = c.req.valid('param')
+      let options: { subject?: string } | undefined
+      try {
+        const body = (await c.req.json()) as { subject?: string } | null
+        if (body?.subject) options = { subject: body.subject }
+      } catch {
+        // No body or invalid JSON – use default subject
+      }
+      const workOrder = await sendBookingConfirmation(businessId, workOrderId, options)
+      return c.json(
+        { message: 'Booking confirmation sent successfully', success: true, data: workOrder },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof WorkOrderNotFoundError) {
+        return c.json({ message: 'Work order not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (error instanceof Error && error.message.includes('no email')) {
+        return c.json(
+          { message: 'Client has no email address. Add an email to the client to send booking confirmation.' },
+          HttpStatusCodes.BAD_REQUEST
+        )
+      }
+      console.error('Error sending booking confirmation:', error)
+      return c.json(
+        { message: 'Failed to send booking confirmation' },
         HttpStatusCodes.INTERNAL_SERVER_ERROR
       )
     }

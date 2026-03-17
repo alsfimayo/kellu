@@ -8,6 +8,7 @@ import { defaultStatements, adminAc } from "better-auth/plugins/admin/access"
 export const statement = {
   ...defaultStatements,
   workorders: ["create", "read", "update", "delete"],
+  quotes: ["create", "read", "update"],
   tasks: ["create", "read", "update", "delete"],
   expenses: ["create", "read", "update", "delete"],
   priceList: ["create", "read", "update", "delete"],
@@ -29,6 +30,7 @@ export const ac = createAccessControl(statement)
 export const superAdmin = ac.newRole({
   ...adminAc.statements,
   workorders: ["create", "read", "update", "delete"],
+  quotes: ["create", "read", "update"],
   tasks: ["create", "read", "update", "delete"],
   expenses: ["create", "read", "update", "delete"],
   priceList: ["create", "read", "update", "delete"],
@@ -47,6 +49,7 @@ export const superAdmin = ac.newRole({
  */
 export const businessOwner = ac.newRole({
   workorders: ["create", "read", "update", "delete"],
+  quotes: ["create", "read", "update"],
   tasks: ["create", "read", "update", "delete"],
   expenses: ["create", "read", "update", "delete"],
   priceList: ["create", "read", "update", "delete"],
@@ -65,6 +68,7 @@ export const businessOwner = ac.newRole({
  */
 export const admin = ac.newRole({
   workorders: ["create", "read", "update", "delete"],
+  quotes: ["create", "read", "update"],
   tasks: ["create", "read", "update", "delete"],
   expenses: ["create", "read", "update", "delete"],
   priceList: ["create", "read", "update", "delete"],
@@ -83,6 +87,7 @@ export const admin = ac.newRole({
  */
 export const technician = ac.newRole({
   workorders: ["read", "update"],   // read assigned, update status (on_my_way, in_progress, completed)
+  quotes: ["read"],                  // read assigned quotes
   tasks: ["read", "update"],         // read assigned tasks, update status
   expenses: ["create", "read"],      // can log expenses on their jobs
   clients: ["read"],                 // read-only client info on assigned jobs

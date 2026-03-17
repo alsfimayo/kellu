@@ -150,57 +150,117 @@ export async function createRole(businessId: string, input: CreateRoleInput) {
 
 /** Update a custom role. System roles cannot be modified. */
 export async function updateRole(
+
   businessId: string,
+
   roleId: string,
+
   input: UpdateRoleInput
+
 ) {
+
   await ensureBusinessExists(businessId)
+
   const existing = await prisma.role.findFirst({
+
     where: { id: roleId, businessId },
+
     select: { id: true, isSystem: true },
+
   })
+
   if (!existing) throw new RoleNotFoundError()
+
   if (existing.isSystem) {
+
     throw new InvalidPermissionError("System roles cannot be modified")
+
   }
 
   if (input.permissions) {
+
     validatePermissions(input.permissions)
+
   }
 
+  // Step 1: Upsert all permissions OUTSIDE the transaction (no timeout risk)
+
+  const resolvedPermissions = input.permissions
+
+    ? await Promise.all(
+
+        input.permissions.map((p) =>
+
+          prisma.permission.upsert({
+
+            where: { resource_action: { resource: p.resource, action: p.action } },
+
+            update: {},
+
+            create: { resource: p.resource, action: p.action },
+
+          })
+
+        )
+
+      )
+
+    : null
+
+  // Step 2: Update role + swap permissions in one fast transaction
+
   return prisma.$transaction(async (tx) => {
+
     await tx.role.update({
+
       where: { id: roleId },
+
       data: {
+
         ...(input.name != null && { name: input.name }),
+
         ...(input.displayName !== undefined && { displayName: input.displayName }),
+
         ...(input.description !== undefined && { description: input.description }),
+
       },
+
     })
 
-    if (input.permissions !== undefined) {
+    if (resolvedPermissions !== null) {
+
       await tx.rolePermission.deleteMany({ where: { roleId } })
-      for (const p of input.permissions) {
-        const permission = await tx.permission.upsert({
-          where: { resource_action: { resource: p.resource, action: p.action } },
-          update: {},
-          create: { resource: p.resource, action: p.action },
-        })
-        await tx.rolePermission.create({
-          data: { roleId, permissionId: permission.id },
-        })
-      }
+
+      await tx.rolePermission.createMany({
+
+        data: resolvedPermissions.map((p) => ({
+
+          roleId,
+
+          permissionId: p.id,
+
+        })),
+
+      })
+
     }
 
-    // ✅ Query inside the transaction
     return tx.role.findUnique({
+
       where: { id: roleId },
+
       include: {
+
         permissions: { include: { permission: true } },
+
         _count: { select: { members: true } },
+
       },
+
     })
+
   })
+
 }
 
 /** Delete a custom role. Fails if members are assigned to it. */
@@ -248,6 +308,9 @@ export async function seedSystemRoles(businessId: string): Promise<void> {
         { resource: "invoices", action: "read" },
         { resource: "invoices", action: "update" },
         { resource: "invoices", action: "delete" },
+        { resource: "quotes", action: "create" },
+        { resource: "quotes", action: "read" },
+        { resource: "quotes", action: "update" },
         { resource: "clients", action: "create" },
         { resource: "clients", action: "read" },
         { resource: "clients", action: "update" },
@@ -270,6 +333,7 @@ export async function seedSystemRoles(businessId: string): Promise<void> {
       permissions: [
         { resource: "workorders", action: "read" },
         { resource: "workorders", action: "update" },
+        { resource: "quotes", action: "read" },
         { resource: "tasks", action: "read" },
         { resource: "tasks", action: "update" },
         { resource: "expenses", action: "create" },
