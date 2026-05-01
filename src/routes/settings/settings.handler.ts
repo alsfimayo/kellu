@@ -380,5 +380,3 @@ export const SETTINGS_HANDLER: HandlerMapFromRoutes<typeof SETTINGS_ROUTES> = {
     }
   },
 }
-
-//hello
