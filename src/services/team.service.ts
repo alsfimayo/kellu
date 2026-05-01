@@ -175,7 +175,7 @@ export async function getMemberById(
 }
 
 /** Add a team member: creates User (with isOwner=false), Account (credential), and Member. */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: onboarding flow handles multiple user-existence branches and safeguards
+// @biome-ignore lint/complexity/noExcessiveCognitiveComplexity: onboarding flow handles multiple user-existence branches and safeguards
 export async function addMember(
   businessId: string,
   input: AddMemberInput

@@ -201,7 +201,7 @@ export const QUOTE_HANDLER: HandlerMapFromRoutes<typeof QUOTE_ROUTES> = {
     }
   },
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: large optional body field mapping
+  // @biome-ignore lint/complexity/noExcessiveCognitiveComplexity: large optional body field mapping
   update: async c => {
     const user = c.get('user')
     if (!user) {
@@ -477,7 +477,7 @@ export const QUOTE_HANDLER: HandlerMapFromRoutes<typeof QUOTE_ROUTES> = {
     }
   },
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: multipart + JSON branches and notifications
+  // @biome-ignore lint/complexity/noExcessiveCognitiveComplexity: multipart + JSON branches and notifications
   sendEmail: async c => {
     const user = c.get('user')
     if (!user) {
@@ -785,7 +785,7 @@ export const QUOTE_HANDLER: HandlerMapFromRoutes<typeof QUOTE_ROUTES> = {
     }
   },
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: client token redirect flow with nested URL helper
+  // @biome-ignore lint/complexity/noExcessiveCognitiveComplexity: client token redirect flow with nested URL helper
   clientRespondGet: async c => {
     const { action, token, quoteId: quoteIdFromQuery } = c.req.valid('query')
     const frontendDefault = (Bun.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '')

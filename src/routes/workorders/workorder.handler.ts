@@ -1338,7 +1338,7 @@ export const WORK_ORDER_HANDLER: HandlerMapFromRoutes<typeof WORK_ORDER_ROUTES> 
     }
   },
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: multipart parsing and attachment handling flow
+  // @biome-ignore lint/complexity/noExcessiveCognitiveComplexity: multipart parsing and attachment handling flow
   sendJobFollowUpEmail: async c => {
     const user = c.get('user')
     if (!user) {

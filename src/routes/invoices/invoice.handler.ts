@@ -401,7 +401,7 @@ export const INVOICE_HANDLER: HandlerMapFromRoutes<typeof INVOICE_ROUTES> = {
     }
   },
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: multipart parsing and attachment assembly
+  // @biome-ignore lint/complexity/noExcessiveCognitiveComplexity: multipart parsing and attachment assembly
   sendEmail: async c => {
     const user = c.get('user')
     if (!user) {

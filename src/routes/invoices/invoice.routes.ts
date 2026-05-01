@@ -9,7 +9,7 @@ import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers'
 import { zodResponseSchema } from '~/lib/zod-helper'
 
 const InvoiceStatusEnum = z.enum([
-  'NOT_SENT',
+  'NOT_APPLIED',
   'AWAITING_PAYMENT',
   'OVERDUE',
   'PAID',

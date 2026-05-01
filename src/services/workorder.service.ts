@@ -982,7 +982,7 @@ export async function createWorkOrder(businessId: string, input: CreateWorkOrder
 }
 
 /** Update work order (§6.3). Recalculates financials and can re-derive job status. */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: schedule merge, batch transaction, nested replaces
+// @biome-ignore lint/complexity/noExcessiveCognitiveComplexity: schedule merge, batch transaction, nested replaces
 export async function updateWorkOrder(
   businessId: string,
   workOrderId: string,
@@ -1962,7 +1962,7 @@ export async function getJobFollowUpEmailComposeData(businessId: string, workOrd
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: attachment selection, fetch, and optional copy send
+// @biome-ignore lint/complexity/noExcessiveCognitiveComplexity: attachment selection, fetch, and optional copy send
 export async function sendJobFollowUpEmail(
   businessId: string,
   workOrderId: string,

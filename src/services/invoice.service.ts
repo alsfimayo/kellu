@@ -252,7 +252,7 @@ export async function getInvoiceOverview(businessId: string): Promise<InvoiceOve
   const statusOrder: InvoiceStatus[] = [
     'OVERDUE',
     'AWAITING_PAYMENT',
-    'NOT_SENT',
+    'NOT_APPLIED',
     'PAID',
     'CANCELLED',
     'BAD_DEBT',
@@ -535,7 +535,7 @@ export async function createInvoice(
         address: input.address,
         workOrderId: input.workOrderId ?? null,
         assignedToId: input.assignedToId ?? null,
-        status: 'NOT_SENT',
+        status: 'NOT_APPLIED',
         invoiceNumber,
       },
     })
@@ -582,7 +582,7 @@ export async function sendInvoice(businessId: string, invoiceId: string) {
   if (!inv) {
     throw new InvoiceNotFoundError()
   }
-  if (inv.status !== 'NOT_SENT') {
+  if (inv.status !== 'NOT_APPLIED') {
     throw new Error('Invoice was already sent or is in a terminal state')
   }
 
@@ -755,9 +755,9 @@ export async function getInvoiceEmailComposeData(businessId: string, invoiceId: 
 
 /**
  * Send invoice email (modal "Send Email"). Attaches selected PDFs from invoice / linked work order.
- * If invoice status is NOT_SENT, also marks invoice as sent (AWAITING_PAYMENT, sentAt, dueAt).
+ * If invoice status is NOT_APPLIED, also marks invoice as sent (AWAITING_PAYMENT, sentAt, dueAt).
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: multipart + attachment fetch + optional mark-sent branches
+// @biome-ignore lint/complexity/noExcessiveCognitiveComplexity: multipart + attachment fetch + optional mark-sent branches
 export async function sendInvoiceEmail(
   businessId: string,
   invoiceId: string,
@@ -775,7 +775,7 @@ export async function sendInvoiceEmail(
       contentType?: string | null
     }>
     requesterEmail?: string
-    /** If false, only send email without updating NOT_SENT → AWAITING_PAYMENT. Default true. */
+    /** If false, only send email without updating NOT_APPLIED → AWAITING_PAYMENT. Default true. */
     markInvoiceSent?: boolean
   }
 ) {
@@ -931,7 +931,7 @@ export async function sendInvoiceEmail(
   }
 
   const markSent = options?.markInvoiceSent !== false
-  if (markSent && inv.status === 'NOT_SENT') {
+  if (markSent && inv.status === 'NOT_APPLIED') {
     const dueDays = inv.business.settings?.invoiceDueDays ?? 3
     const sentAt = new Date()
     const dueAt = new Date(sentAt)
