@@ -71,6 +71,7 @@ export interface ClientMessageTemplateResult {
   messageTemplate: string
   subjectPreview: string
   messagePreview: string
+  variables?: Record<string, string>
 }
 export interface BulkClientMessageRecipientInput {
   clientId: string
@@ -92,7 +93,26 @@ export interface BulkClientMessageResult {
 interface ClientMessageTemplateVariables {
   clientName: string
   companyName: string
+  companyInfo: string
   defaultEmail: string
+  contactEmail: string
+  phoneNumber: string
+  lineItems: string
+  discountAmount: string
+  total: string
+  paymentAmount: string
+  balance: string
+  quoteNumber: string
+  quoteSentDate: string
+  workorderNumber: string
+  arrivalWindow: string
+  jobDate: string
+  jobDateTime: string
+  jobAddress: string
+  jobTitle: string
+  invoiceNumber: string
+  invoiceSentDate: string
+  dueDate: string
   currentDate: string
 }
 
@@ -403,6 +423,192 @@ function formatCurrentDateForTemplate(d: Date): string {
   })
 }
 
+function formatMoneyForTemplate(value: Prisma.Decimal | number | null | undefined): string {
+  if (value == null) {
+    return '$0.00'
+  }
+  const raw = typeof value === 'number' ? value : Number(value)
+  const amount = Number.isFinite(raw) ? raw : 0
+  return amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+}
+
+function formatDateForTemplate(value: Date | null | undefined): string {
+  if (!value) {
+    return ''
+  }
+  return formatCurrentDateForTemplate(value)
+}
+
+function formatDateTimeForTemplate(
+  dateValue: Date | null | undefined,
+  startTime?: string | null
+): string {
+  if (!dateValue && !startTime) {
+    return ''
+  }
+  const datePart = dateValue ? formatDateForTemplate(dateValue) : ''
+  if (!startTime) {
+    return datePart
+  }
+  return datePart ? `${datePart} ${startTime}` : startTime
+}
+
+function joinLineItemsForTemplate(
+  items: Array<{ name: string; quantity?: number | null }> | null | undefined
+): string {
+  if (!items?.length) {
+    return ''
+  }
+  return items
+    .map(item => {
+      const qty = typeof item.quantity === 'number' && item.quantity > 1 ? ` x${item.quantity}` : ''
+      return `${item.name}${qty}`
+    })
+    .join(', ')
+}
+
+async function buildClientTemplateVariables(clientId: string): Promise<{
+  client: {
+    id: string
+    name: string
+    email: string | null
+    businessId: string
+    business: {
+      name: string
+      email: string
+      phone: string | null
+      settings: { replyToEmail: string | null } | null
+    }
+  }
+  variables: ClientMessageTemplateVariables
+}> {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      businessId: true,
+      business: {
+        select: {
+          name: true,
+          email: true,
+          phone: true,
+          settings: { select: { replyToEmail: true } },
+        },
+      },
+      workOrders: {
+        orderBy: { updatedAt: 'desc' },
+        take: 1,
+        select: {
+          workOrderNumber: true,
+          scheduledAt: true,
+          startTime: true,
+          endTime: true,
+          address: true,
+          title: true,
+          discount: true,
+          total: true,
+          amountPaid: true,
+          balance: true,
+          lineItems: { select: { name: true, quantity: true } },
+        },
+      },
+      quotes: {
+        orderBy: { updatedAt: 'desc' },
+        take: 1,
+        select: {
+          quoteNumber: true,
+          quoteSentAt: true,
+          discount: true,
+          total: true,
+          amountPaid: true,
+          balance: true,
+          lineItems: { select: { name: true, quantity: true } },
+        },
+      },
+      invoices: {
+        orderBy: { updatedAt: 'desc' },
+        take: 1,
+        select: {
+          invoiceNumber: true,
+          sentAt: true,
+          dueAt: true,
+          discount: true,
+          total: true,
+          amountPaid: true,
+          balance: true,
+          lineItems: { select: { name: true, quantity: true } },
+        },
+      },
+    },
+  })
+  if (!client) {
+    throw new ClientNotFoundError()
+  }
+
+  const latestWorkorder = client.workOrders[0] ?? null
+  const latestQuote = client.quotes[0] ?? null
+  const latestInvoice = client.invoices[0] ?? null
+  const lineItems =
+    joinLineItemsForTemplate(latestWorkorder?.lineItems) ||
+    joinLineItemsForTemplate(latestQuote?.lineItems) ||
+    joinLineItemsForTemplate(latestInvoice?.lineItems) ||
+    ''
+
+  const preferredEmail = client.business.settings?.replyToEmail?.trim() || client.business.email
+  const variables: ClientMessageTemplateVariables = {
+    clientName: client.name,
+    companyName: client.business.name,
+    companyInfo: client.business.name,
+    defaultEmail: preferredEmail,
+    contactEmail: preferredEmail,
+    phoneNumber: client.business.phone?.trim() || '',
+    lineItems,
+    discountAmount: formatMoneyForTemplate(
+      latestWorkorder?.discount ?? latestQuote?.discount ?? latestInvoice?.discount ?? 0
+    ),
+    total: formatMoneyForTemplate(
+      latestWorkorder?.total ?? latestQuote?.total ?? latestInvoice?.total ?? 0
+    ),
+    paymentAmount: formatMoneyForTemplate(
+      latestWorkorder?.amountPaid ?? latestQuote?.amountPaid ?? latestInvoice?.amountPaid ?? 0
+    ),
+    balance: formatMoneyForTemplate(
+      latestWorkorder?.balance ?? latestQuote?.balance ?? latestInvoice?.balance ?? 0
+    ),
+    quoteNumber: latestQuote?.quoteNumber ?? '',
+    quoteSentDate: formatDateForTemplate(latestQuote?.quoteSentAt),
+    workorderNumber: latestWorkorder?.workOrderNumber ?? '',
+    arrivalWindow:
+      latestWorkorder?.startTime && latestWorkorder?.endTime
+        ? `${latestWorkorder.startTime} - ${latestWorkorder.endTime}`
+        : (latestWorkorder?.startTime ?? ''),
+    jobDate: formatDateForTemplate(latestWorkorder?.scheduledAt),
+    jobDateTime: formatDateTimeForTemplate(
+      latestWorkorder?.scheduledAt,
+      latestWorkorder?.startTime
+    ),
+    jobAddress: latestWorkorder?.address ?? '',
+    jobTitle: latestWorkorder?.title ?? '',
+    invoiceNumber: latestInvoice?.invoiceNumber ?? '',
+    invoiceSentDate: formatDateForTemplate(latestInvoice?.sentAt),
+    dueDate: formatDateForTemplate(latestInvoice?.dueAt),
+    currentDate: formatCurrentDateForTemplate(new Date()),
+  }
+
+  return {
+    client: {
+      id: client.id,
+      name: client.name,
+      email: client.email,
+      businessId: client.businessId,
+      business: client.business,
+    },
+    variables,
+  }
+}
+
 function buildTemplateContent(status: ClientMessageStatus): {
   subjectTemplate: string
   messageTemplate: string
@@ -439,15 +645,45 @@ function buildTemplateContent(status: ClientMessageStatus): {
 }
 
 function applyClientTemplateVariables(input: string, data: ClientMessageTemplateVariables): string {
-  return input
-    .split('{{CLIENT_NAME}}')
-    .join(data.clientName)
-    .split('{{COMPANY_NAME}}')
-    .join(data.companyName)
-    .split('{{DEFAULT_EMAIL}}')
-    .join(data.defaultEmail)
-    .split('{{CURRENT_DATE}}')
-    .join(data.currentDate)
+  const singleBraceMap: Record<string, string> = {
+    current_date: data.currentDate,
+    client_name: data.clientName,
+    company_info: data.companyInfo,
+    company_name: data.companyName,
+    contact_email: data.contactEmail,
+    phone_number: data.phoneNumber,
+    line_items: data.lineItems,
+    discount_amount: data.discountAmount,
+    total: data.total,
+    payment_amount: data.paymentAmount,
+    balance: data.balance,
+    quote_number: data.quoteNumber,
+    quote_sent_date: data.quoteSentDate,
+    workorder_number: data.workorderNumber,
+    arrival_window: data.arrivalWindow,
+    job_date: data.jobDate,
+    job_date_time: data.jobDateTime,
+    job_address: data.jobAddress,
+    job_title: data.jobTitle,
+    invoice_number: data.invoiceNumber,
+    invoice_sent_date: data.invoiceSentDate,
+    due_date: data.dueDate,
+  }
+  const doubleBraceMap: Record<string, string> = {
+    CLIENT_NAME: data.clientName,
+    COMPANY_NAME: data.companyName,
+    DEFAULT_EMAIL: data.defaultEmail,
+    CURRENT_DATE: data.currentDate,
+  }
+
+  let out = input
+  for (const [token, value] of Object.entries(singleBraceMap)) {
+    out = out.split(`{${token}}`).join(value)
+  }
+  for (const [token, value] of Object.entries(doubleBraceMap)) {
+    out = out.split(`{{${token}}}`).join(value)
+  }
+  return out
 }
 
 function toHtmlFromPlainText(text: string): string {
@@ -473,6 +709,30 @@ function buildClientMessageTemplateResult(
     messageTemplate,
     subjectPreview: applyClientTemplateVariables(subjectTemplate, variables),
     messagePreview: applyClientTemplateVariables(messageTemplate, variables),
+    variables: {
+      current_date: variables.currentDate,
+      client_name: variables.clientName,
+      company_info: variables.companyInfo,
+      company_name: variables.companyName,
+      contact_email: variables.contactEmail,
+      phone_number: variables.phoneNumber,
+      line_items: variables.lineItems,
+      discount_amount: variables.discountAmount,
+      total: variables.total,
+      payment_amount: variables.paymentAmount,
+      balance: variables.balance,
+      quote_number: variables.quoteNumber,
+      quote_sent_date: variables.quoteSentDate,
+      workorder_number: variables.workorderNumber,
+      arrival_window: variables.arrivalWindow,
+      job_date: variables.jobDate,
+      job_date_time: variables.jobDateTime,
+      job_address: variables.jobAddress,
+      job_title: variables.jobTitle,
+      invoice_number: variables.invoiceNumber,
+      invoice_sent_date: variables.invoiceSentDate,
+      due_date: variables.dueDate,
+    },
   }
 }
 
@@ -480,24 +740,7 @@ export async function getLatestClientMessageTemplate(
   clientId: string,
   status: ClientMessageStatus
 ): Promise<ClientMessageTemplateResult> {
-  const client = await prisma.client.findUnique({
-    where: { id: clientId },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      businessId: true,
-      business: {
-        select: {
-          name: true,
-          email: true,
-        },
-      },
-    },
-  })
-  if (!client) {
-    throw new ClientNotFoundError()
-  }
+  const { client, variables } = await buildClientTemplateVariables(clientId)
 
   const latestLog = await prisma.auditLog.findFirst({
     where: {
@@ -522,25 +765,12 @@ export async function getLatestClientMessageTemplate(
   if (
     logRecord?.status === status &&
     typeof logRecord.subjectTemplate === 'string' &&
-    typeof logRecord.messageTemplate === 'string' &&
-    typeof logRecord.subjectPreview === 'string' &&
-    typeof logRecord.messagePreview === 'string'
+    typeof logRecord.messageTemplate === 'string'
   ) {
-    return {
-      status,
-      to: logRecord.to ?? client.email,
+    return buildClientMessageTemplateResult(status, logRecord.to ?? client.email, variables, {
       subjectTemplate: logRecord.subjectTemplate,
       messageTemplate: logRecord.messageTemplate,
-      subjectPreview: logRecord.subjectPreview,
-      messagePreview: logRecord.messagePreview,
-    }
-  }
-
-  const variables = {
-    clientName: client.name,
-    companyName: client.business.name,
-    defaultEmail: client.business.email,
-    currentDate: formatCurrentDateForTemplate(new Date()),
+    })
   }
   return buildClientMessageTemplateResult(status, client.email, variables)
 }
@@ -550,34 +780,9 @@ export async function getClientMessageTemplate(
   status: ClientMessageStatus,
   senderUserId?: string
 ): Promise<ClientMessageTemplateResult> {
-  const client = await prisma.client.findUnique({
-    where: { id: clientId },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      businessId: true,
-      business: {
-        select: {
-          name: true,
-          email: true,
-        },
-      },
-    },
-  })
-
-  if (!client) {
-    throw new ClientNotFoundError()
-  }
+  const { client, variables } = await buildClientTemplateVariables(clientId)
   if (!client.email) {
     throw new ClientEmailRequiredError()
-  }
-
-  const variables = {
-    clientName: client.name,
-    companyName: client.business.name,
-    defaultEmail: client.business.email,
-    currentDate: formatCurrentDateForTemplate(new Date()),
   }
   const messageData = buildClientMessageTemplateResult(status, client.email, variables)
   await sendClientTemplateMessage({
@@ -631,32 +836,9 @@ export async function sendClientMessageTemplateBulk(
   const results: BulkClientMessageResult['results'] = []
   for (const recipient of recipients) {
     try {
-      const client = await prisma.client.findUnique({
-        where: { id: recipient.clientId },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          businessId: true,
-          business: {
-            select: {
-              name: true,
-              email: true,
-            },
-          },
-        },
-      })
-      if (!client) {
-        throw new ClientNotFoundError()
-      }
+      const { client, variables } = await buildClientTemplateVariables(recipient.clientId)
       if (!client.email) {
         throw new ClientEmailRequiredError()
-      }
-      const variables = {
-        clientName: client.name,
-        companyName: client.business.name,
-        defaultEmail: client.business.email,
-        currentDate: formatCurrentDateForTemplate(new Date()),
       }
       const messageData = buildClientMessageTemplateResult(status, client.email, variables, {
         subjectTemplate: recipient.subjectTemplate,

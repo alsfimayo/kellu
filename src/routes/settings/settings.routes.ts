@@ -67,6 +67,61 @@ const ScheduleColorAssigneeSchema = z.object({
   color: z.string().nullable(),
 })
 
+const DispatchBookingConfirmationRemindersBodySchema = z.object({
+  asOf: z.coerce.date().optional(),
+  dryRun: z.boolean().optional().default(false),
+})
+
+const BookingReminderScheduleSchema = z.object({
+  id: z.string(),
+  timeValue: z.number().int().min(1),
+  timeUnit: z.enum(['hours', 'days']),
+  timeOfDay: z.string().nullable(),
+  channel: z.literal('EMAIL'),
+  isEnabled: z.boolean(),
+})
+
+const BookingReminderTemplateSchema = z.object({
+  subject: z.string(),
+  message: z.string(),
+})
+
+const BookingConfirmationReminderSettingsSchema = z.object({
+  enabled: z.boolean(),
+  schedules: z.array(BookingReminderScheduleSchema),
+  template: BookingReminderTemplateSchema,
+})
+
+const UpdateBookingReminderScheduleSchema = z.object({
+  id: z.string().optional(),
+  timeValue: z.number().int().min(1),
+  timeUnit: z.enum(['hours', 'days']),
+  timeOfDay: z.string().nullable().optional(),
+  enabled: z.boolean().optional(),
+})
+
+const UpdateBookingConfirmationReminderSettingsBodySchema = z.object({
+  enabled: z.boolean().optional(),
+  schedules: z.array(UpdateBookingReminderScheduleSchema).optional(),
+  template: BookingReminderTemplateSchema.partial().optional(),
+})
+
+const DispatchBookingConfirmationRemindersResponseSchema = z.object({
+  asOf: z.coerce.date(),
+  dryRun: z.boolean(),
+  processed: z.number().int(),
+  sent: z.number().int(),
+  skipped: z.number().int(),
+  skippedReasons: z.object({
+    bookingReminderDisabled: z.number().int(),
+    noReminderConfigs: z.number().int(),
+    noClientEmail: z.number().int(),
+    alreadySentForSchedule: z.number().int(),
+    notDueYet: z.number().int(),
+    missedWindow: z.number().int(),
+  }),
+})
+
 const UpdateSettingsBodySchema = z
   .object({
     fullName: z.string().optional(),
@@ -209,6 +264,70 @@ export const SETTINGS_ROUTES = {
     responses: {
       [HttpStatusCodes.OK]: jsonContent(zodResponseSchema(ScheduleColorAssigneeSchema), 'OK'),
       [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business or member not found'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
+
+  getBookingConfirmationReminderSettings: createRoute({
+    method: 'get',
+    tags: ['Settings'],
+    path: '/booking-confirmation-reminders',
+    summary: 'Get booking confirmation reminder schedules and email template (email only)',
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(
+        zodResponseSchema(BookingConfirmationReminderSettingsSchema),
+        'OK'
+      ),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business not found'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
+
+  updateBookingConfirmationReminderSettings: createRoute({
+    method: 'patch',
+    tags: ['Settings'],
+    path: '/booking-confirmation-reminders',
+    summary: 'Update booking confirmation reminder schedules and email template (email only)',
+    request: {
+      body: jsonContentRequired(
+        UpdateBookingConfirmationReminderSettingsBodySchema,
+        'Booking confirmation reminder settings payload'
+      ),
+    },
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(
+        zodResponseSchema(BookingConfirmationReminderSettingsSchema),
+        'Updated'
+      ),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business not found'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
+
+  dispatchBookingConfirmationReminders: createRoute({
+    method: 'post',
+    tags: ['Settings'],
+    path: '/booking-confirmation-reminders/dispatch',
+    summary:
+      'Dispatch due booking confirmation reminder emails from business settings to workorder clients',
+    request: {
+      body: jsonContentRequired(
+        DispatchBookingConfirmationRemindersBodySchema,
+        'Optional dispatch controls'
+      ),
+    },
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(
+        zodResponseSchema(DispatchBookingConfirmationRemindersResponseSchema),
+        'Dispatch completed'
+      ),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business not found'),
       [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
       [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
       [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),

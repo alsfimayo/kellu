@@ -8,11 +8,13 @@ import prisma from '~/lib/prisma'
 import { triggerDueClientReminders } from '~/services/client.service'
 import { registerEmailListeners } from '~/services/email-helpers'
 import { createUserNotification } from '~/services/notifications.service'
+import { dispatchBookingConfirmationRemindersForAllBusinesses } from '~/services/settings.service'
 import { ORIGINS } from './config/origins'
 import type { AppBindings } from './types'
 
 registerEmailListeners()
 const CLIENT_REMINDER_TRIGGER_INTERVAL_MS = 60_000
+const BOOKING_CONFIRMATION_REMINDER_TRIGGER_INTERVAL_MS = 60_000
 
 void triggerDueClientReminders().catch(error => {
   console.error('[client-reminders] initial trigger check failed:', error)
@@ -22,6 +24,15 @@ setInterval(() => {
     console.error('[client-reminders] periodic trigger check failed:', error)
   })
 }, CLIENT_REMINDER_TRIGGER_INTERVAL_MS)
+
+void dispatchBookingConfirmationRemindersForAllBusinesses().catch(error => {
+  console.error('[booking-confirmation-reminders] initial trigger check failed:', error)
+})
+setInterval(() => {
+  void dispatchBookingConfirmationRemindersForAllBusinesses().catch(error => {
+    console.error('[booking-confirmation-reminders] periodic trigger check failed:', error)
+  })
+}, BOOKING_CONFIRMATION_REMINDER_TRIGGER_INTERVAL_MS)
 
 const app = createApp()
 
