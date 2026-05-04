@@ -127,7 +127,7 @@ export async function getInsightsOverview(
       where: {
         businessId,
         createdAt: { gte: from, lte: to },
-        jobStatus: { not: 'CANCELLED' },
+        cancelledAt: null,
       },
     }),
     sumInvoiceTotalInRange(businessId, from, to),
@@ -310,7 +310,7 @@ export async function getInsightsJobs(
 
   const grouped = await prisma.workOrder.groupBy({
     by: ['jobStatus'],
-    where: { businessId, createdAt: { gte: from, lte: to } },
+    where: { businessId, createdAt: { gte: from, lte: to }, cancelledAt: null },
     _count: { _all: true },
   })
 
