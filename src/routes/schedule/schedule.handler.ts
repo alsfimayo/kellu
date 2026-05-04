@@ -11,7 +11,6 @@ import {
   getDailySchedule,
   getScheduleItems,
   getTeamMembersForSchedule,
-  notifyAfterQuickCreateTask,
   notifyAfterQuickCreateWorkOrder,
   notifyAfterScheduleReschedule,
   quickCreateTask,
@@ -350,12 +349,6 @@ export const SCHEDULE_HANDLER: HandlerMapFromRoutes<typeof SCHEDULE_ROUTES> = {
         businessId,
         ipAddress,
         userAgent,
-      })
-
-      await notifyAfterQuickCreateTask(businessId, result.id, {
-        id: user.id,
-        email: user.email,
-        name: user.name,
       })
 
       return c.json(

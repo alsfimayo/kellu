@@ -486,7 +486,7 @@ Or with explicit options:
 | `bookingReminderDisabled` | `BusinessSettings.bookingRemindersEnabled` is false (usually `1` when disabled, else `0`). |
 | `noReminderConfigs` | No enabled EMAIL `BOOKING_CONFIRMATION` schedule rows. |
 | `noClientEmail` | Work order’s client has no email. |
-| `alreadySentForSchedule` | This schedule row already sent for this work order (dedupe via `ReminderLog` + `note` `configId:<id>`). |
+| `alreadySentForSchedule` | This schedule row already sent for this work order (dedupe via `ReminderLog` + `note` `configId:<id>`). Settings reminders therefore send **at most once** per enabled schedule row per job. |
 | `notDueYet` | `asOf` is **before** the computed reminder time. |
 | `missedWindow` | Includes: reminder time **before** work order `createdAt` (short-notice booking), or `asOf` **on or after** `scheduledAt` (appointment time passed). |
 | `noScheduledAppointment` | Defensive; normal query already requires `scheduledAt` set. |

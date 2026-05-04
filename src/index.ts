@@ -9,12 +9,13 @@ import { triggerBookingConfirmationRemindersForAllBusinesses } from '~/services/
 import { triggerDueClientReminders } from '~/services/client.service'
 import { registerEmailListeners } from '~/services/email-helpers'
 import { createUserNotification } from '~/services/notifications.service'
+import { triggerQuoteRemindersForAllBusinesses } from '~/services/quote-reminders.service'
 
 import { ORIGINS } from './config/origins'
 import type { AppBindings } from './types'
 
 registerEmailListeners()
-/** How often the server evaluates due client follow-ups and booking-confirmation reminder emails. */
+/** How often the server evaluates due client follow-ups, booking-confirmation, and quote reminder emails. */
 const CLIENT_REMINDER_TRIGGER_INTERVAL_MS = 60_000
 
 void triggerDueClientReminders().catch(error => {
@@ -24,12 +25,18 @@ void triggerDueClientReminders().catch(error => {
 void triggerBookingConfirmationRemindersForAllBusinesses().catch(error => {
   console.error('[booking-confirmation-reminders] initial dispatch failed:', error)
 })
+void triggerQuoteRemindersForAllBusinesses().catch(error => {
+  console.error('[quote-reminders] initial dispatch failed:', error)
+})
 setInterval(() => {
   void triggerDueClientReminders().catch(error => {
     console.error('[client-reminders] periodic trigger check failed:', error)
   })
   void triggerBookingConfirmationRemindersForAllBusinesses().catch(error => {
     console.error('[booking-confirmation-reminders] periodic dispatch failed:', error)
+  })
+  void triggerQuoteRemindersForAllBusinesses().catch(error => {
+    console.error('[quote-reminders] periodic dispatch failed:', error)
   })
 }, CLIENT_REMINDER_TRIGGER_INTERVAL_MS)
 

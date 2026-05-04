@@ -6,7 +6,6 @@
 import type { Prisma, TaskStatus } from '~/generated/prisma'
 import prisma from '~/lib/prisma'
 import { BusinessNotFoundError } from '~/services/business.service'
-import { sendTaskCreatedEmail } from '~/services/email-helpers'
 import { createWorkOrder } from '~/services/workorder.service'
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
@@ -265,75 +264,6 @@ async function getTaskById(businessId: string, taskId: string) {
   return mapTaskForApi(task)
 }
 
-// ─── Email helpers ───────────────────────────────────────────────────────────
-
-function formatTaskDateString(scheduledAt: Date | null): string {
-  if (!scheduledAt) {
-    return 'To be confirmed'
-  }
-  return scheduledAt.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-}
-
-function formatTaskTimeRange(
-  isAnyTime: boolean,
-  startTime: string | null,
-  endTime: string | null
-): string {
-  if (isAnyTime) {
-    return 'Anytime'
-  }
-  if (startTime && endTime) {
-    return `${startTime} - ${endTime}`
-  }
-  return startTime ?? endTime ?? 'To be confirmed'
-}
-
-async function sendTaskCreatedEmailIfApplicable(taskId: string, businessId: string): Promise<void> {
-  const task = await prisma.task.findFirst({
-    where: { id: taskId, businessId },
-    include: {
-      client: { select: { name: true, email: true } },
-      assignedTo: { include: { user: { select: { name: true } } } },
-      assignees: {
-        include: {
-          member: {
-            include: { user: { select: { name: true } } },
-          },
-        },
-      },
-      business: { include: { settings: { select: { replyToEmail: true } } } },
-    },
-  })
-
-  if (!task?.client?.email) {
-    return
-  }
-  if (!task.business) {
-    return
-  }
-
-  const companyReplyTo = task.business.settings?.replyToEmail?.trim() || task.business.email
-
-  sendTaskCreatedEmail({
-    to: task.client.email,
-    clientName: task.client.name,
-    businessName: task.business.name,
-    companyReplyTo,
-    companyLogoUrl: task.business.logoUrl ?? undefined,
-    title: task.title,
-    address: task.address ?? '—',
-    date: formatTaskDateString(task.scheduledAt),
-    timeRange: formatTaskTimeRange(task.isAnyTime, task.startTime, task.endTime),
-    assignedTeamMemberName:
-      task.assignees[0]?.member?.user?.name ?? task.assignedTo?.user?.name ?? 'Our team',
-    instructions: task.instructions ?? undefined,
-  })
-}
-
 // ─── Query builder ────────────────────────────────────────────────────────────
 
 function buildTaskWhereInput(businessId: string, filters: TaskListFilters): Prisma.TaskWhereInput {
@@ -506,12 +436,6 @@ export async function createTask(businessId: string, input: CreateTaskInput) {
       taskStatus: 'SCHEDULED',
     },
   })
-
-  try {
-    await sendTaskCreatedEmailIfApplicable(task.id, businessId)
-  } catch (e) {
-    console.error('[TASK] Failed to send task created email:', e)
-  }
 
   const created = await getTaskById(businessId, task.id)
   const assignedMembers = await getMembersByIdsInOrder(businessId, normalizedAssignedToIds)

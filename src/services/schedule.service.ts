@@ -13,7 +13,6 @@
 import { type Prisma, RolePortalScope } from '~/generated/prisma'
 import prisma from '~/lib/prisma'
 import { BusinessNotFoundError } from '~/services/business.service'
-import { sendTaskAssignedToTeamMemberEmail } from '~/services/email-helpers'
 import { createUserNotification } from '~/services/notifications.service'
 
 export type ScheduleItemType = 'workorder' | 'task'
@@ -1016,48 +1015,8 @@ type QuickCreateWoForNotify = Prisma.WorkOrderGetPayload<{
   }
 }>
 
-type QuickCreateTaskForNotify = Prisma.TaskGetPayload<{
-  include: {
-    client: { select: { name: true; email: true; phone: true } }
-    assignedTo: { include: { user: { select: { name: true; email: true } } } }
-    business: { include: { settings: { select: { replyToEmail: true } } } }
-  }
-}>
-
 function sendQuickCreateWorkOrderAssigneeEmail(_wo: QuickCreateWoForNotify): void {
   // Intentionally disabled: do not email when creating a work order from the calendar quick-create flow.
-}
-
-function sendQuickCreateTaskAssigneeEmail(task: QuickCreateTaskForNotify): void {
-  const assigneeEmail = task.assignedTo?.user?.email?.trim()
-  if (!assigneeEmail || !task.assignedTo?.user || !task.business) {
-    return
-  }
-  const companyReplyTo = task.business.settings?.replyToEmail?.trim() || task.business.email
-  if (!companyReplyTo) {
-    return
-  }
-  const dateStr = formatScheduleEmailDate(task.scheduledAt)
-  const timeRangeStr = task.isAnyTime
-    ? 'Anytime'
-    : formatScheduleTimeRange(task.startTime, task.endTime, task.scheduledAt)
-  const addressDisplay = task.address ?? '—'
-  const clientLabel = task.client?.name ?? 'No client'
-  const clientPhone = task.client?.phone ?? null
-  sendTaskAssignedToTeamMemberEmail({
-    to: assigneeEmail,
-    assigneeName: task.assignedTo.user.name ?? 'there',
-    businessName: task.business.name,
-    companyReplyTo,
-    companyLogoUrl: task.business.logoUrl ?? undefined,
-    title: task.title,
-    clientName: clientLabel,
-    clientPhone,
-    address: addressDisplay,
-    date: dateStr,
-    timeRange: timeRangeStr,
-    instructions: task.instructions,
-  })
 }
 
 async function notifyQuickCreateWorkOrderSideEffects(
@@ -1097,41 +1056,6 @@ async function notifyQuickCreateWorkOrderSideEffects(
   })
 }
 
-async function notifyQuickCreateTaskSideEffects(
-  businessId: string,
-  taskId: string,
-  actingUser: ScheduleRescheduleActingUser
-): Promise<void> {
-  const task = await prisma.task.findFirst({
-    where: { id: taskId, businessId },
-    include: {
-      client: { select: { name: true, email: true, phone: true } },
-      assignedTo: { include: { user: { select: { name: true, email: true } } } },
-      business: { include: { settings: { select: { replyToEmail: true } } } },
-    },
-  })
-  if (!task) {
-    return
-  }
-
-  try {
-    sendQuickCreateTaskAssigneeEmail(task)
-  } catch (e) {
-    console.error('[SCHEDULE] Failed to send task assignee email:', e)
-  }
-
-  await createUserNotification({
-    userId: actingUser.id,
-    type: 'TASK_CREATED',
-    title: `You created a task - ${task.title}`,
-    message: task.client?.name ?? 'No client',
-    metadata: {
-      taskId: task.id,
-      clientName: task.client?.name ?? null,
-    },
-  })
-}
-
 /** Client email (if client has email), assignee email (if member has user email), in-app notification + ack for the acting user. */
 export async function notifyAfterQuickCreateWorkOrder(
   businessId: string,
@@ -1142,19 +1066,6 @@ export async function notifyAfterQuickCreateWorkOrder(
     await notifyQuickCreateWorkOrderSideEffects(businessId, workOrderId, actingUser)
   } catch (err) {
     console.error('[schedule] Quick create work order notification/email failed:', err)
-  }
-}
-
-/** Client email (if applicable), assignee email (if member has user email), in-app notification + ack for the acting user. */
-export async function notifyAfterQuickCreateTask(
-  businessId: string,
-  taskId: string,
-  actingUser: ScheduleRescheduleActingUser
-): Promise<void> {
-  try {
-    await notifyQuickCreateTaskSideEffects(businessId, taskId, actingUser)
-  } catch (err) {
-    console.error('[schedule] Quick create task notification/email failed:', err)
   }
 }
 
@@ -1195,11 +1106,11 @@ export async function quickCreateWorkOrder(
   const workOrderNumber = `#${count + 1}`
 
   // Determine initial job status from schedule fields
-  let jobStatus: 'UNSCHEDULED' | 'UNASSIGNED' | 'SCHEDULED' = 'UNSCHEDULED'
+  let jobStatus: 'UNSCHEDULED' | 'NOT_APPLIED' | 'SCHEDULED' = 'UNSCHEDULED'
   if (scheduledAt && assignedToId) {
     jobStatus = 'SCHEDULED'
   } else if (scheduledAt) {
-    jobStatus = 'UNASSIGNED'
+    jobStatus = 'NOT_APPLIED'
   }
 
   const wo = await prisma.workOrder.create({

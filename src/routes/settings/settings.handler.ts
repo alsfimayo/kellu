@@ -11,6 +11,12 @@ import {
   getBookingReminderTemplateVariablesResponse,
   updateBookingConfirmationReminderSettings,
 } from '~/services/booking-confirmation-reminders.service'
+import {
+  dispatchQuoteReminders,
+  getQuoteReminderSettings,
+  getQuoteReminderTemplateVariablesResponse,
+  updateQuoteReminderSettings,
+} from '~/services/quote-reminders.service'
 import { BusinessNotFoundError, getBusinessIdByUserId } from '~/services/business.service'
 import { hasPermission } from '~/services/permission.service'
 import {
@@ -513,6 +519,138 @@ export const SETTINGS_HANDLER: HandlerMapFromRoutes<typeof SETTINGS_ROUTES> = {
       console.error('Error fetching booking reminder template variables:', error)
       return c.json(
         { message: 'Failed to retrieve booking reminder template variables' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  getQuoteReminders: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'settings', 'read'))) {
+        return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN)
+      }
+      const data = await getQuoteReminderSettings(businessId)
+      return c.json(
+        { message: 'Quote reminders retrieved successfully', success: true, data },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error fetching quote reminders:', error)
+      return c.json(
+        { message: 'Failed to retrieve quote reminders' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  patchQuoteReminders: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'settings', 'update'))) {
+        return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN)
+      }
+      const body = c.req.valid('json')
+      const data = await updateQuoteReminderSettings(businessId, {
+        enabled: body.enabled,
+        schedules: body.schedules,
+        template: body.template,
+      })
+      return c.json(
+        { message: 'Quote reminders updated successfully', success: true, data },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error updating quote reminders:', error)
+      return c.json(
+        { message: 'Failed to update quote reminders' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  postQuoteRemindersDispatch: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'settings', 'update'))) {
+        return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN)
+      }
+      const body = c.req.valid('json')
+      const asOf = body.asOf ? new Date(body.asOf) : undefined
+      const dryRun = body.dryRun ?? false
+      const data = await dispatchQuoteReminders(businessId, { asOf, dryRun })
+      return c.json(
+        { message: 'Quote reminders dispatched successfully', success: true, data },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error dispatching quote reminders:', error)
+      return c.json(
+        { message: 'Failed to dispatch quote reminders' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  getQuoteReminderTemplateVariables: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'settings', 'read'))) {
+        return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN)
+      }
+      const data = getQuoteReminderTemplateVariablesResponse()
+      return c.json(
+        {
+          message: 'Quote reminder template variables retrieved successfully',
+          success: true,
+          data,
+        },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error fetching quote reminder template variables:', error)
+      return c.json(
+        { message: 'Failed to retrieve quote reminder template variables' },
         HttpStatusCodes.INTERNAL_SERVER_ERROR
       )
     }

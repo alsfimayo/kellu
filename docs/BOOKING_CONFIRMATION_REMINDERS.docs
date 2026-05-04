@@ -62,7 +62,7 @@ Work orders considered:
 
 For each **enabled** `ReminderConfig` (EMAIL, `BOOKING_CONFIRMATION`) × work order:
 
-1. **Duplicate** — if a `ReminderLog` exists with the same `workOrderId` and `note = configId:<id>`, skip (`alreadySentForSchedule`).
+1. **Duplicate** — if a `ReminderLog` exists with the same `workOrderId` and `note = configId:<id>`, skip (`alreadySentForSchedule`). This is how **settings** reminders are limited to **once** per schedule row per work order. Manual “Send booking confirmation” on the work order does **not** participate in this check and is unchanged.
 2. **Client email** — if the client has no usable email, skip (`noClientEmail`).
 3. **Compute `reminderTime`** from `scheduledAt`, `timeValue`, `timeUnit`, optional `timeOfDay`, and business `timeZone`.
 4. **Not due yet** — if `asOf < reminderTime`, skip (`notDueYet`).
