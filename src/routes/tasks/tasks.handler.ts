@@ -65,7 +65,7 @@ function toTeamMemberTaskDetail(
 
 async function createTaskOperationNotification(input: {
   userId: string
-  type: 'TASK_CREATED' | 'TASK_UPDATED' | 'TASK_DELETED'
+  type: 'TASK_UPDATED' | 'TASK_DELETED'
   title: string
   message?: string | null
   metadata: Record<string, unknown>
@@ -212,18 +212,6 @@ export const TASK_HANDLER: HandlerMapFromRoutes<typeof TASK_ROUTES> = {
         businessId,
         ipAddress,
         userAgent,
-      })
-      await createTaskOperationNotification({
-        userId: user.id,
-        type: 'TASK_CREATED',
-        title: `You created a task - ${task.title}`,
-        message: task.client?.name ?? null,
-        metadata: {
-          taskId: task.id,
-          title: task.title,
-          taskStatus: task.taskStatus,
-          clientName: task.client?.name ?? null,
-        },
       })
       return c.json(
         { message: 'Task created successfully', success: true, data: task },
