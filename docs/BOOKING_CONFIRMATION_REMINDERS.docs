@@ -1,0 +1,109 @@
+# Booking confirmation reminders (email) — backend reference
+
+This document describes the backend implementation for the **Booking confirmation Reminders** settings UI (email only; WhatsApp is intentionally not implemented here).
+
+Related Markdown guide: `docs/BOOKING_CONFIRMATION_REMINDERS_API.md` (curl examples and QA checklist).
+
+---
+
+## 1. Purpose
+
+- Persist the master **Reminder** toggle, per-business **schedules** (hours/days before appointment, optional time-of-day for day-based rules), and the **email subject + body** template.
+- Evaluate **work orders** with a concrete `scheduledAt`, send at most **one email per schedule row per work order**, and honour the UI rule about **missed reminder windows**.
+- Expose **template variable metadata** for the **Insert variable** dropdown (same token style as `GET /api/clients/{clientId}/message-template`).
+
+---
+
+## 2. Persistence (Prisma)
+
+| UI / concept | Storage |
+| --- | --- |
+| Reminder ON/OFF | `BusinessSettings.bookingRemindersEnabled` |
+| Each schedule row | `ReminderConfig` with `reminderType = BOOKING_CONFIRMATION`, `channel = EMAIL`, `timeValue`, `timeUnit` (`hours` \| `days`), `timeOfDay` (nullable; used for `days`), `isEnabled` |
+| Email subject + message | `MessageTemplate` with `templateType = BOOKING_CONFIRMATION_REMINDER`, `channel = EMAIL`, linked to `BusinessSettings` |
+| Sent audit / dedupe | `ReminderLog` with `reminderType = BOOKING_CONFIRMATION`, `entityType = WORK_ORDER`, `workOrderId`, `clientId`, `businessId`, `channel = EMAIL`, `note = configId:<ReminderConfig.id>` |
+
+Business timezone for day-based wall times: `Business.timeZone` (IANA), e.g. `America/Santiago`. When the JS runtime exposes `Temporal`, day offsets + `timeOfDay` use that timezone; otherwise a UTC fallback is used (see service comments in code).
+
+---
+
+## 3. HTTP API (authenticated)
+
+Base path: `/api/settings` (same router as other company settings).
+
+| Method | Path | Permission | Description |
+| --- | --- | --- | --- |
+| GET | `/booking-confirmation-reminders` | `settings` `read` | Toggle, schedules, template, `uiHint` (exact UI disclaimer text). |
+| PATCH | `/booking-confirmation-reminders` | `settings` `update` | Replace all `BOOKING_CONFIRMATION` EMAIL `ReminderConfig` rows for the business and upsert the reminder `MessageTemplate`; update `bookingRemindersEnabled`. |
+| POST | `/booking-confirmation-reminders/dispatch` | `settings` `update` | Run dispatch for **this business only** (optional JSON `{ "asOf"?: ISO8601, "dryRun"?: boolean }`, default `{}` → now, `dryRun: false`). |
+| GET | `/booking-confirmation-reminders/template-variables` | `settings` `read` | Static list of `{ key, label, example }` plus `insertFormat` and `note` for editors. |
+
+Response envelope matches the rest of the API: `{ message, success, data }`.
+
+---
+
+## 4. Master toggle behaviour
+
+- **Default ON:** New `BusinessSettings` rows use `bookingRemindersEnabled` **true** (Prisma `@default(true)` and explicit create in `business.service.ts` when seeding reply-to). The GET settings API also treats a missing row as **enabled** (`?? true`) until persisted otherwise.
+- **Automatic emails:** When the toggle is **true**, the server **does not require** POST `/dispatch`. It runs `triggerBookingConfirmationRemindersForAllBusinesses()` on startup and **every ~60 seconds** (`src/index.ts`), same interval as client follow-up reminders. Each run evaluates all businesses and sends **due** reminder emails (same rules as manual dispatch).
+- If `bookingRemindersEnabled` is **false**, dispatch exits immediately with `skippedReasons.bookingReminderDisabled` and **sends no email**; the periodic job hits the same fast path.
+
+---
+
+## 5. Dispatch rules (email)
+
+Evaluation starts from **work orders only**. A client who has **never had a work order** (or only quotes/invoices with no job) **never receives** a booking confirmation reminder from this flow — emails are only triggered per qualifying `WorkOrder`.
+
+Work orders considered:
+
+- `businessId` matches.
+- `cancelledAt` is null.
+- `scheduledAt` is not null.
+
+For each **enabled** `ReminderConfig` (EMAIL, `BOOKING_CONFIRMATION`) × work order:
+
+1. **Duplicate** — if a `ReminderLog` exists with the same `workOrderId` and `note = configId:<id>`, skip (`alreadySentForSchedule`).
+2. **Client email** — if the client has no usable email, skip (`noClientEmail`).
+3. **Compute `reminderTime`** from `scheduledAt`, `timeValue`, `timeUnit`, optional `timeOfDay`, and business `timeZone`.
+4. **Not due yet** — if `asOf < reminderTime`, skip (`notDueYet`).
+5. **Missed scheduling window** — if `reminderTime < workOrder.createdAt`, skip (`missedWindow`). This encodes the UI example: a “6 hours before” rule when the job is only 4 hours away implies a fire time before the work order existed, so no email is sent.
+6. **Appointment already started** — if `asOf >= scheduledAt`, skip (`missedWindow`).
+7. Otherwise **send** (unless `dryRun`): merge template with variables from the work order context, send via `emailService`, then insert `ReminderLog`.
+
+`skipped` in the dispatch payload is the **sum** of all `skippedReasons` counters. `sent` counts emails that were sent (or that **would** be sent when `dryRun: true`).
+
+---
+
+## 6. Template variables (Insert variable)
+
+Tokens use **single braces**: `{client_name}`, `{job_date}`, etc., and optional legacy **`{{CLIENT_NAME}}`**-style tokens are also substituted in the service.
+
+`GET /api/settings/booking-confirmation-reminders/template-variables` returns the canonical list. Values at send time are built from the **work order** (client, business, WO fields, latest related quote/invoice line items where applicable), aligned with the variable map returned on `GET /api/clients/{clientId}/message-template` for editor consistency.
+
+Extra alias: `{business_name}` maps to the same value as `{company_name}`.
+
+---
+
+## 7. Default template
+
+If no `MessageTemplate` row exists yet, the API reads logical defaults matching the product copy:
+
+- Subject: `Scheduled reminder: Booking confirmation Reminders`
+- Message: short greeting with `{client_name}` and reminder text (see `DEFAULT_MESSAGE` in `booking-confirmation-reminders.service.ts`).
+
+---
+
+## 8. Operational notes
+
+- **Resend** — requires `RESEND_API_KEY` and `RESEND_FROM_EMAIL` (or defaults used elsewhere in the codebase) or dispatch will error on send.
+- **Dry run** — does not write `ReminderLog` or call Resend; increments `sent` only for rows that would qualify, for observability.
+- **PATCH schedules array** — may be empty: all booking email reminder configs are removed; the toggle can still be updated.
+
+---
+
+## 9. Source files
+
+- `src/services/booking-confirmation-reminders.service.ts` — core logic.
+- `src/routes/settings/settings.routes.ts` — OpenAPI route definitions.
+- `src/routes/settings/settings.handler.ts` — HTTP handlers.
+- `src/index.ts` — periodic `triggerBookingConfirmationRemindersForAllBusinesses`.

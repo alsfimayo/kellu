@@ -5,6 +5,7 @@ import { auth } from '~/lib/auth'
 import configureOpenAPI from '~/lib/configure-open-api'
 import createApp from '~/lib/create-app'
 import prisma from '~/lib/prisma'
+import { triggerBookingConfirmationRemindersForAllBusinesses } from '~/services/booking-confirmation-reminders.service'
 import { triggerDueClientReminders } from '~/services/client.service'
 import { registerEmailListeners } from '~/services/email-helpers'
 import { createUserNotification } from '~/services/notifications.service'
@@ -13,14 +14,22 @@ import { ORIGINS } from './config/origins'
 import type { AppBindings } from './types'
 
 registerEmailListeners()
+/** How often the server evaluates due client follow-ups and booking-confirmation reminder emails. */
 const CLIENT_REMINDER_TRIGGER_INTERVAL_MS = 60_000
 
 void triggerDueClientReminders().catch(error => {
   console.error('[client-reminders] initial trigger check failed:', error)
 })
+// When BusinessSettings.bookingRemindersEnabled is true, due emails are sent without calling the API.
+void triggerBookingConfirmationRemindersForAllBusinesses().catch(error => {
+  console.error('[booking-confirmation-reminders] initial dispatch failed:', error)
+})
 setInterval(() => {
   void triggerDueClientReminders().catch(error => {
     console.error('[client-reminders] periodic trigger check failed:', error)
+  })
+  void triggerBookingConfirmationRemindersForAllBusinesses().catch(error => {
+    console.error('[booking-confirmation-reminders] periodic dispatch failed:', error)
   })
 }, CLIENT_REMINDER_TRIGGER_INTERVAL_MS)
 

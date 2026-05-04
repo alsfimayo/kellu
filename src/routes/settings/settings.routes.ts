@@ -214,6 +214,176 @@ export const SETTINGS_ROUTES = {
       [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
     },
   }),
+
+  getBookingConfirmationReminders: createRoute({
+    method: 'get',
+    tags: ['Settings'],
+    path: '/booking-confirmation-reminders',
+    summary: 'Get booking confirmation email reminder toggle, schedules, and template',
+    request: {},
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(
+        zodResponseSchema(
+          z.object({
+            enabled: z.boolean(),
+            schedules: z.array(
+              z.object({
+                id: z.string(),
+                timeValue: z.number().int(),
+                timeUnit: z.enum(['hours', 'days']),
+                timeOfDay: z.string().nullable(),
+                channel: z.literal('EMAIL'),
+                enabled: z.boolean(),
+              })
+            ),
+            template: z.object({
+              subject: z.string(),
+              message: z.string(),
+            }),
+            uiHint: z.string(),
+          })
+        ),
+        'OK'
+      ),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business not found'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
+
+  patchBookingConfirmationReminders: createRoute({
+    method: 'patch',
+    tags: ['Settings'],
+    path: '/booking-confirmation-reminders',
+    summary: 'Update booking confirmation email reminder settings (toggle, schedules, template)',
+    request: {
+      body: jsonContentRequired(
+        z.object({
+          enabled: z.boolean(),
+          schedules: z.array(
+            z.object({
+              id: z.string().optional(),
+              timeValue: z.number().int().min(1).max(720),
+              timeUnit: z.enum(['hours', 'days']),
+              timeOfDay: z.string().nullable().optional(),
+              enabled: z.boolean().optional().default(true),
+            })
+          ),
+          template: z.object({
+            subject: z.string().min(1),
+            message: z.string().min(1),
+          }),
+        }),
+        'Booking confirmation reminders payload'
+      ),
+    },
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(
+        zodResponseSchema(
+          z.object({
+            enabled: z.boolean(),
+            schedules: z.array(
+              z.object({
+                id: z.string(),
+                timeValue: z.number().int(),
+                timeUnit: z.enum(['hours', 'days']),
+                timeOfDay: z.string().nullable(),
+                channel: z.literal('EMAIL'),
+                enabled: z.boolean(),
+              })
+            ),
+            template: z.object({
+              subject: z.string(),
+              message: z.string(),
+            }),
+            uiHint: z.string(),
+          })
+        ),
+        'OK'
+      ),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business not found'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
+
+  postBookingConfirmationRemindersDispatch: createRoute({
+    method: 'post',
+    tags: ['Settings'],
+    path: '/booking-confirmation-reminders/dispatch',
+    summary: 'Evaluate and send due booking confirmation email reminders for this business',
+    request: {
+      body: jsonContentRequired(
+        z
+          .object({
+            asOf: z.string().datetime().optional(),
+            dryRun: z.boolean().optional(),
+          })
+          .default({}),
+        'Dispatch options'
+      ),
+    },
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(
+        zodResponseSchema(
+          z.object({
+            asOf: z.string(),
+            dryRun: z.boolean(),
+            processed: z.number().int(),
+            sent: z.number().int(),
+            skipped: z.number().int(),
+            skippedReasons: z.object({
+              bookingReminderDisabled: z.number().int(),
+              noReminderConfigs: z.number().int(),
+              noClientEmail: z.number().int(),
+              alreadySentForSchedule: z.number().int(),
+              notDueYet: z.number().int(),
+              missedWindow: z.number().int(),
+              noScheduledAppointment: z.number().int(),
+              cancelledWorkOrder: z.number().int(),
+            }),
+          })
+        ),
+        'OK'
+      ),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business not found'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
+
+  getBookingConfirmationReminderTemplateVariables: createRoute({
+    method: 'get',
+    tags: ['Settings'],
+    path: '/booking-confirmation-reminders/template-variables',
+    summary: 'List insert-variable tokens for booking reminder email templates (email only)',
+    request: {},
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(
+        zodResponseSchema(
+          z.object({
+            variables: z.array(
+              z.object({
+                key: z.string(),
+                label: z.string(),
+                example: z.string(),
+              })
+            ),
+            insertFormat: z.string(),
+            note: z.string(),
+          })
+        ),
+        'OK'
+      ),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business not found'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
 }
 
 export type SettingsRoutes = typeof SETTINGS_ROUTES

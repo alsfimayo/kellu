@@ -5,6 +5,12 @@
 import * as HttpStatusCodes from 'stoker/http-status-codes'
 import type { SETTINGS_ROUTES } from '~/routes/settings/settings.routes'
 import { createAuditLog } from '~/services/audit-log.service'
+import {
+  dispatchBookingConfirmationReminders,
+  getBookingConfirmationReminderSettings,
+  getBookingReminderTemplateVariablesResponse,
+  updateBookingConfirmationReminderSettings,
+} from '~/services/booking-confirmation-reminders.service'
 import { BusinessNotFoundError, getBusinessIdByUserId } from '~/services/business.service'
 import { hasPermission } from '~/services/permission.service'
 import {
@@ -375,6 +381,138 @@ export const SETTINGS_HANDLER: HandlerMapFromRoutes<typeof SETTINGS_ROUTES> = {
       console.error('Error deleting schedule color:', error)
       return c.json(
         { message: 'Failed to delete schedule color' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  getBookingConfirmationReminders: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'settings', 'read'))) {
+        return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN)
+      }
+      const data = await getBookingConfirmationReminderSettings(businessId)
+      return c.json(
+        { message: 'Booking confirmation reminders retrieved successfully', success: true, data },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error fetching booking confirmation reminders:', error)
+      return c.json(
+        { message: 'Failed to retrieve booking confirmation reminders' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  patchBookingConfirmationReminders: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'settings', 'update'))) {
+        return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN)
+      }
+      const body = c.req.valid('json')
+      const data = await updateBookingConfirmationReminderSettings(businessId, {
+        enabled: body.enabled,
+        schedules: body.schedules,
+        template: body.template,
+      })
+      return c.json(
+        { message: 'Booking confirmation reminders updated successfully', success: true, data },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error updating booking confirmation reminders:', error)
+      return c.json(
+        { message: 'Failed to update booking confirmation reminders' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  postBookingConfirmationRemindersDispatch: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'settings', 'update'))) {
+        return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN)
+      }
+      const body = c.req.valid('json')
+      const asOf = body.asOf ? new Date(body.asOf) : undefined
+      const dryRun = body.dryRun ?? false
+      const data = await dispatchBookingConfirmationReminders(businessId, { asOf, dryRun })
+      return c.json(
+        { message: 'Booking confirmation reminders dispatched successfully', success: true, data },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error dispatching booking confirmation reminders:', error)
+      return c.json(
+        { message: 'Failed to dispatch booking confirmation reminders' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  getBookingConfirmationReminderTemplateVariables: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'settings', 'read'))) {
+        return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN)
+      }
+      const data = getBookingReminderTemplateVariablesResponse()
+      return c.json(
+        {
+          message: 'Booking reminder template variables retrieved successfully',
+          success: true,
+          data,
+        },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error fetching booking reminder template variables:', error)
+      return c.json(
+        { message: 'Failed to retrieve booking reminder template variables' },
         HttpStatusCodes.INTERNAL_SERVER_ERROR
       )
     }

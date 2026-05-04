@@ -506,6 +506,8 @@ async function upsertBusinessSettingsReplyTo(
     create: {
       businessId,
       replyToEmail,
+      // Prisma also defaults this; set explicitly so booking reminder emails are on for new businesses.
+      bookingRemindersEnabled: true,
     },
     update: { replyToEmail },
   })
