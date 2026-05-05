@@ -55,7 +55,11 @@ export interface BookingReminderSettingsPayload {
 export interface BookingReminderDispatchSkippedReasons {
   bookingReminderDisabled: number
   noReminderConfigs: number
+  dispatchAlreadyRunning: number
+  noWorkOrderNumber: number
   noClientEmail: number
+  suppressedAfterBookingConfirmationEmail: number
+  suppressedByManualCustomerReminder: number
   alreadySentForSchedule: number
   notDueYet: number
   missedWindow: number
@@ -392,7 +396,11 @@ function emptySkipped(): BookingReminderDispatchSkippedReasons {
   return {
     bookingReminderDisabled: 0,
     noReminderConfigs: 0,
+    dispatchAlreadyRunning: 0,
+    noWorkOrderNumber: 0,
     noClientEmail: 0,
+    suppressedAfterBookingConfirmationEmail: 0,
+    suppressedByManualCustomerReminder: 0,
     alreadySentForSchedule: 0,
     notDueYet: 0,
     missedWindow: 0,
@@ -553,6 +561,80 @@ async function hasReminderAlreadySent(workOrderId: string, configId: string): Pr
   return Boolean(found)
 }
 
+async function hasWorkOrderReminderEverSent(workOrderId: string): Promise<boolean> {
+  const found = await prisma.reminderLog.findFirst({
+    where: {
+      workOrderId,
+      reminderType: REMINDER_TYPE,
+      channel: 'EMAIL',
+    },
+    select: { id: true },
+  })
+  return Boolean(found)
+}
+
+async function claimReminderSend(params: {
+  businessId: string
+  workOrderId: string
+  clientId: string
+  sentAt: Date
+  configId: string
+}): Promise<{ claimed: true; id: string } | { claimed: false }> {
+  // Work-order-wide claim key (not config-specific) to prevent duplicate sends when
+  // schedules change or manual dispatch is triggered multiple times.
+  const note = `workOrderId:${params.workOrderId}`
+  try {
+    const created = await prisma.reminderLog.create({
+      data: {
+        reminderType: REMINDER_TYPE,
+        sentAt: params.sentAt,
+        channel: 'EMAIL',
+        entityType: 'WORK_ORDER',
+        entityId: params.workOrderId,
+        workOrderId: params.workOrderId,
+        clientId: params.clientId,
+        businessId: params.businessId,
+        note,
+      },
+      select: { id: true },
+    })
+    return { claimed: true, id: created.id }
+  } catch (error) {
+    // Unique constraint prevents duplicates across concurrent dispatch runs.
+    if (error instanceof Error && /unique/i.test(error.message)) {
+      return { claimed: false }
+    }
+    throw error
+  }
+}
+
+function computeWorkOrderWideSkip(params: {
+  wo: {
+    workOrderNumber: string | null
+    bookingConfirmationSentAt: Date | null
+    confirmationReminderSentAt: Date | null
+    client: { id: string }
+  }
+  configCount: number
+  skippedReasons: BookingReminderDispatchSkippedReasons
+}): { processedDelta: number; shouldSkip: boolean } {
+  const { wo, configCount, skippedReasons } = params
+
+  if (!wo.workOrderNumber?.trim()) {
+    skippedReasons.noWorkOrderNumber += configCount
+    return { processedDelta: configCount, shouldSkip: true }
+  }
+  if (wo.bookingConfirmationSentAt) {
+    skippedReasons.suppressedAfterBookingConfirmationEmail += configCount
+    return { processedDelta: configCount, shouldSkip: true }
+  }
+  if (wo.confirmationReminderSentAt) {
+    skippedReasons.suppressedByManualCustomerReminder += configCount
+    return { processedDelta: configCount, shouldSkip: true }
+  }
+  return { processedDelta: 0, shouldSkip: false }
+}
+
 export async function dispatchBookingConfirmationReminders(
   businessId: string,
   options?: { asOf?: Date; dryRun?: boolean }
@@ -561,188 +643,240 @@ export async function dispatchBookingConfirmationReminders(
   const dryRun = options?.dryRun ?? false
   const skippedReasons = emptySkipped()
 
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      timeZone: true,
-      settings: {
-        select: {
-          bookingRemindersEnabled: true,
-          replyToEmail: true,
-          templates: {
-            where: { templateType: TEMPLATE_TYPE, channel: 'EMAIL' },
-            orderBy: { updatedAt: 'desc' },
-            take: 1,
-            select: { subject: true, message: true },
+  // Prevent overlapping dispatch runs for the same business (cron + manual dispatch).
+  // This avoids duplicate sends when multiple dispatches race before logs are written.
+  const lockRows = await prisma.$queryRaw<Array<{ locked: boolean }>>`
+    SELECT pg_try_advisory_lock(hashtext(${businessId})) AS locked
+  `
+  const locked = lockRows?.[0]?.locked === true
+  if (!locked) {
+    skippedReasons.dispatchAlreadyRunning = 1
+    const skipped = Object.values(skippedReasons).reduce((a, b) => a + b, 0)
+    return {
+      asOf: asOf.toISOString(),
+      dryRun,
+      processed: 0,
+      sent: 0,
+      skipped,
+      skippedReasons,
+    }
+  }
+
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        timeZone: true,
+        settings: {
+          select: {
+            bookingRemindersEnabled: true,
+            replyToEmail: true,
+            templates: {
+              where: { templateType: TEMPLATE_TYPE, channel: 'EMAIL' },
+              orderBy: { updatedAt: 'desc' },
+              take: 1,
+              select: { subject: true, message: true },
+            },
+          },
+        },
+        reminderConfigs: {
+          where: {
+            reminderType: REMINDER_TYPE,
+            channel: 'EMAIL',
+            isEnabled: true,
+          },
+          select: {
+            id: true,
+            timeValue: true,
+            timeUnit: true,
+            timeOfDay: true,
           },
         },
       },
-      reminderConfigs: {
-        where: {
-          reminderType: REMINDER_TYPE,
-          channel: 'EMAIL',
-          isEnabled: true,
-        },
-        select: {
-          id: true,
-          timeValue: true,
-          timeUnit: true,
-          timeOfDay: true,
-        },
+    })
+
+    if (!business) {
+      throw new BusinessNotFoundError()
+    }
+
+    const remindersEnabled = business.settings?.bookingRemindersEnabled ?? true
+    if (!remindersEnabled) {
+      skippedReasons.bookingReminderDisabled = 1
+      const skipped = Object.values(skippedReasons).reduce((a, b) => a + b, 0)
+      return {
+        asOf: asOf.toISOString(),
+        dryRun,
+        processed: 0,
+        sent: 0,
+        skipped,
+        skippedReasons,
+      }
+    }
+
+    const configs = business.reminderConfigs
+    if (configs.length === 0) {
+      skippedReasons.noReminderConfigs = 1
+      const skipped = Object.values(skippedReasons).reduce((a, b) => a + b, 0)
+      return {
+        asOf: asOf.toISOString(),
+        dryRun,
+        processed: 0,
+        sent: 0,
+        skipped,
+        skippedReasons,
+      }
+    }
+
+    const templateRow = business.settings?.templates?.[0]
+    const subjectTpl = templateRow?.subject?.trim() || DEFAULT_SUBJECT
+    const messageTpl = templateRow?.message?.trim() || DEFAULT_MESSAGE
+    const tz = business.timeZone?.trim() || 'UTC'
+
+    /**
+     * Reminders run only against persisted work orders (not quote-only clients). Jobs must have a
+     * assigned work order number — legacy rows without one are skipped. Communications / manual
+     * customer reminders suppress automation via `bookingConfirmationSentAt` and
+     * `confirmationReminderSentAt`.
+     */
+    const workOrders = await prisma.workOrder.findMany({
+      where: {
+        businessId,
+        cancelledAt: null,
+        scheduledAt: { not: null },
+        workOrderNumber: { not: null },
       },
-    },
-  })
+      select: {
+        id: true,
+        workOrderNumber: true,
+        createdAt: true,
+        scheduledAt: true,
+        bookingConfirmationSentAt: true,
+        confirmationReminderSentAt: true,
+        client: { select: { id: true, email: true } },
+      },
+    })
 
-  if (!business) {
-    throw new BusinessNotFoundError()
-  }
+    let processed = 0
+    let sent = 0
 
-  const remindersEnabled = business.settings?.bookingRemindersEnabled ?? true
-  if (!remindersEnabled) {
-    skippedReasons.bookingReminderDisabled = 1
-    const skipped = Object.values(skippedReasons).reduce((a, b) => a + b, 0)
-    return {
-      asOf: asOf.toISOString(),
-      dryRun,
-      processed: 0,
-      sent: 0,
-      skipped,
-      skippedReasons,
-    }
-  }
-
-  const configs = business.reminderConfigs
-  if (configs.length === 0) {
-    skippedReasons.noReminderConfigs = 1
-    const skipped = Object.values(skippedReasons).reduce((a, b) => a + b, 0)
-    return {
-      asOf: asOf.toISOString(),
-      dryRun,
-      processed: 0,
-      sent: 0,
-      skipped,
-      skippedReasons,
-    }
-  }
-
-  const templateRow = business.settings?.templates?.[0]
-  const subjectTpl = templateRow?.subject?.trim() || DEFAULT_SUBJECT
-  const messageTpl = templateRow?.message?.trim() || DEFAULT_MESSAGE
-  const tz = business.timeZone?.trim() || 'UTC'
-
-  /**
-   * Reminders are sent only in the context of an existing work order. Clients with no work order
-   * are never considered — there is no separate client-level reminder loop.
-   */
-  const workOrders = await prisma.workOrder.findMany({
-    where: {
-      businessId,
-      cancelledAt: null,
-      scheduledAt: { not: null },
-    },
-    select: {
-      id: true,
-      createdAt: true,
-      scheduledAt: true,
-      client: { select: { id: true, email: true } },
-    },
-  })
-
-  let processed = 0
-  let sent = 0
-
-  for (const wo of workOrders) {
-    for (const cfg of configs) {
-      processed += 1
-      if (!wo.scheduledAt) {
-        skippedReasons.noScheduledAppointment += 1
-        continue
-      }
-      if (await hasReminderAlreadySent(wo.id, cfg.id)) {
-        skippedReasons.alreadySentForSchedule += 1
-        continue
-      }
-      const clientEmail = wo.client.email?.trim()
-      if (!clientEmail) {
-        skippedReasons.noClientEmail += 1
-        continue
-      }
-
-      const timeUnit = cfg.timeUnit === 'days' ? 'days' : 'hours'
-      const reminderTime = computeReminderTime(
-        wo.scheduledAt,
-        cfg.timeValue,
-        timeUnit,
-        cfg.timeOfDay,
-        tz
-      )
-
-      if (asOf.getTime() < reminderTime.getTime()) {
-        skippedReasons.notDueYet += 1
-        continue
-      }
-
-      /**
-       * Missed window: reminder instant was before the work order existed (e.g. "6 hours before"
-       * when the job is only 4 hours away — the computed fire time lies in the past vs creation).
-       */
-      if (reminderTime.getTime() < wo.createdAt.getTime()) {
-        skippedReasons.missedWindow += 1
-        continue
-      }
-
-      if (asOf.getTime() >= wo.scheduledAt.getTime()) {
-        skippedReasons.missedWindow += 1
-        continue
-      }
-
-      const vars = await buildTemplateVarsForWorkOrder(wo.id)
-      const subject = applyTemplateTokens(subjectTpl, vars)
-      const bodyText = applyTemplateTokens(messageTpl, vars)
-      const companyReplyTo = business.settings?.replyToEmail?.trim() || business.email
-
-      if (dryRun) {
-        sent += 1
-        continue
-      }
-
-      await emailService.send({
-        to: clientEmail,
-        subject,
-        html: plainTextToHtml(bodyText),
-        from: `${business.name} <${process.env.RESEND_FROM_EMAIL ?? 'noresponder@notificaciones.kellu.co'}>`,
-        replyTo: companyReplyTo,
+    for (const wo of workOrders) {
+      const n = configs.length
+      const woSkip = computeWorkOrderWideSkip({
+        wo,
+        configCount: n,
+        skippedReasons,
       })
+      if (woSkip.shouldSkip) {
+        processed += woSkip.processedDelta
+        continue
+      }
 
-      await prisma.reminderLog.create({
-        data: {
-          reminderType: REMINDER_TYPE,
-          sentAt: asOf,
-          channel: 'EMAIL',
-          entityType: 'WORK_ORDER',
-          entityId: wo.id,
+      // Ensure "same client + same work order" sends at most once total.
+      if (await hasWorkOrderReminderEverSent(wo.id)) {
+        skippedReasons.alreadySentForSchedule += n
+        processed += n
+        continue
+      }
+
+      for (const cfg of configs) {
+        processed += 1
+        if (!wo.scheduledAt) {
+          skippedReasons.noScheduledAppointment += 1
+          continue
+        }
+        if (await hasReminderAlreadySent(wo.id, cfg.id)) {
+          skippedReasons.alreadySentForSchedule += 1
+          continue
+        }
+        const clientEmail = wo.client.email?.trim()
+        if (!clientEmail) {
+          skippedReasons.noClientEmail += 1
+          continue
+        }
+
+        const timeUnit = cfg.timeUnit === 'days' ? 'days' : 'hours'
+        const reminderTime = computeReminderTime(
+          wo.scheduledAt,
+          cfg.timeValue,
+          timeUnit,
+          cfg.timeOfDay,
+          tz
+        )
+
+        if (asOf.getTime() < reminderTime.getTime()) {
+          skippedReasons.notDueYet += 1
+          continue
+        }
+
+        /**
+         * Missed window: reminder instant was before the work order existed (e.g. "6 hours before"
+         * when the job is only 4 hours away — the computed fire time lies in the past vs creation).
+         */
+        if (reminderTime.getTime() < wo.createdAt.getTime()) {
+          skippedReasons.missedWindow += 1
+          continue
+        }
+
+        if (asOf.getTime() >= wo.scheduledAt.getTime()) {
+          skippedReasons.missedWindow += 1
+          continue
+        }
+
+        const vars = await buildTemplateVarsForWorkOrder(wo.id)
+        const subject = applyTemplateTokens(subjectTpl, vars)
+        const bodyText = applyTemplateTokens(messageTpl, vars)
+        const companyReplyTo = business.settings?.replyToEmail?.trim() || business.email
+
+        if (dryRun) {
+          sent += 1
+          continue
+        }
+
+        // Claim send first to prevent duplicates across overlapping dispatch runs.
+        const claim = await claimReminderSend({
+          businessId,
           workOrderId: wo.id,
           clientId: wo.client.id,
-          businessId,
-          note: `configId:${cfg.id}`,
-        },
-      })
-      sent += 1
+          sentAt: asOf,
+          configId: cfg.id,
+        })
+        if (!claim.claimed) {
+          skippedReasons.alreadySentForSchedule += 1
+          continue
+        }
+
+        try {
+          await emailService.send({
+            to: clientEmail,
+            subject,
+            html: plainTextToHtml(bodyText),
+            from: `${business.name} <${process.env.RESEND_FROM_EMAIL ?? 'noresponder@notificaciones.kellu.co'}>`,
+            replyTo: companyReplyTo,
+          })
+        } catch (error) {
+          // If sending fails, remove the claim so a future dispatch can retry.
+          await prisma.reminderLog.delete({ where: { id: claim.id } }).catch(() => null)
+          throw error
+        }
+        sent += 1
+      }
     }
-  }
 
-  const skipped = Object.values(skippedReasons).reduce((a, b) => a + b, 0)
+    const skipped = Object.values(skippedReasons).reduce((a, b) => a + b, 0)
 
-  return {
-    asOf: asOf.toISOString(),
-    dryRun,
-    processed,
-    sent,
-    skipped,
-    skippedReasons,
+    return {
+      asOf: asOf.toISOString(),
+      dryRun,
+      processed,
+      sent,
+      skipped,
+      skippedReasons,
+    }
+  } finally {
+    await prisma.$queryRaw`SELECT pg_advisory_unlock(hashtext(${businessId}))`.catch(() => null)
   }
 }
 

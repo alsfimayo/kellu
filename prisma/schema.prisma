@@ -578,6 +578,10 @@ model ReminderLog {
   business     Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
   client       Client?             @relation(fields: [clientId], references: [id], onDelete: Cascade)
   workOrder    WorkOrder?          @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  // Prevent duplicate booking reminder sends across overlapping dispatch runs.
+  // For booking reminders we always set workOrderId + note = `configId:<ReminderConfig.id>`.
+  @@unique([businessId, reminderType, workOrderId, note])
 }
 
 model Notification {

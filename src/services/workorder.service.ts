@@ -1850,6 +1850,11 @@ export async function createWorkOrderCustomerReminder(
         businessId,
       },
     })
+
+    await tx.workOrder.update({
+      where: { id: workOrderId },
+      data: { confirmationReminderSentAt: new Date() },
+    })
   })
 
   try {

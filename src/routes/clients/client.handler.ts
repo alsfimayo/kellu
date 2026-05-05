@@ -15,6 +15,7 @@ import {
   getClients,
   getLatestClientMessageTemplate,
   getLeadSources,
+  listClientBookingConfirmationReminderEmails,
   listClientCustomerReminders,
   sendClientMessageTemplateBulk,
   updateClientByClientId,
@@ -212,6 +213,40 @@ export const CLIENT_HANDLER: HandlerMapFromRoutes<typeof CLIENT_ROUTES> = {
       console.error('Error fetching lead sources:', error)
       return c.json(
         { message: 'Failed to retrieve lead sources' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  listBookingConfirmationReminderEmails: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found for this user' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'clients', 'read'))) {
+        return c.json(
+          { message: 'You do not have permission to view client reminders' },
+          HttpStatusCodes.FORBIDDEN
+        )
+      }
+      const { clientId } = c.req.valid('param')
+      const data = await listClientBookingConfirmationReminderEmails(businessId, clientId)
+      return c.json(
+        { message: 'Booking confirmation reminder emails retrieved successfully', success: true, data },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof ClientNotFoundError) {
+        return c.json({ message: 'Client not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error fetching booking confirmation reminder emails:', error)
+      return c.json(
+        { message: 'Failed to retrieve booking confirmation reminder emails' },
         HttpStatusCodes.INTERNAL_SERVER_ERROR
       )
     }

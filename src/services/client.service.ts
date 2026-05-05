@@ -966,6 +966,91 @@ export async function listClientCustomerReminders(businessId: string, clientId: 
   }
 }
 
+export async function listClientBookingConfirmationReminderEmails(
+  businessId: string,
+  clientId: string
+): Promise<
+  Array<{
+    workOrderId: string
+    workOrderNumber: string | null
+    title: string
+    scheduledAt: Date | null
+    lastSentAt: Date
+    sendCount: number
+  }>
+> {
+  await ensureBusinessExists(businessId)
+
+  const clientRecord = await prisma.client.findFirst({
+    where: { id: clientId, businessId },
+    select: { id: true },
+  })
+  if (!clientRecord) {
+    throw new ClientNotFoundError()
+  }
+
+  const logs = await prisma.reminderLog.findMany({
+    where: {
+      businessId,
+      clientId: clientRecord.id,
+      reminderType: 'BOOKING_CONFIRMATION',
+      channel: 'EMAIL',
+      workOrderId: { not: null },
+    },
+    orderBy: { sentAt: 'desc' },
+    select: {
+      sentAt: true,
+      workOrderId: true,
+      workOrder: {
+        select: {
+          id: true,
+          workOrderNumber: true,
+          title: true,
+          scheduledAt: true,
+        },
+      },
+    },
+  })
+
+  const byWorkOrder = new Map<
+    string,
+    {
+      workOrderId: string
+      workOrderNumber: string | null
+      title: string
+      scheduledAt: Date | null
+      lastSentAt: Date
+      sendCount: number
+    }
+  >()
+
+  for (const row of logs) {
+    const workOrderId = row.workOrderId
+    const wo = row.workOrder
+    if (!workOrderId || !wo) {
+      continue
+    }
+    const prev = byWorkOrder.get(workOrderId)
+    if (!prev) {
+      byWorkOrder.set(workOrderId, {
+        workOrderId,
+        workOrderNumber: wo.workOrderNumber ?? null,
+        title: wo.title,
+        scheduledAt: wo.scheduledAt ?? null,
+        lastSentAt: row.sentAt,
+        sendCount: 1,
+      })
+      continue
+    }
+    prev.sendCount += 1
+    if (row.sentAt.getTime() > prev.lastSentAt.getTime()) {
+      prev.lastSentAt = row.sentAt
+    }
+  }
+
+  return Array.from(byWorkOrder.values()).sort((a, b) => b.lastSentAt.getTime() - a.lastSentAt.getTime())
+}
+
 async function triggerDueClientRemindersForBusiness(businessId: string): Promise<number> {
   const now = new Date()
   const dueClients = await prisma.client.findMany({
@@ -1097,6 +1182,17 @@ export async function createClientCustomerReminder(
         clientId: client.id,
         businessId,
       },
+    })
+
+    const now = new Date()
+    await tx.workOrder.updateMany({
+      where: {
+        clientId: client.id,
+        businessId,
+        cancelledAt: null,
+        scheduledAt: { not: null, gt: now },
+      },
+      data: { confirmationReminderSentAt: now },
     })
   })
 

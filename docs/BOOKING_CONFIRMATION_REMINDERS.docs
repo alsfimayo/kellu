@@ -2,7 +2,7 @@
 
 This document describes the backend implementation for the **Booking confirmation Reminders** settings UI (email only; WhatsApp is intentionally not implemented here).
 
-Related Markdown guide: `docs/BOOKING_CONFIRMATION_REMINDERS_API.md` (curl examples and QA checklist).
+Related Markdown guides: `docs/BOOKING_CONFIRMATION_REMINDERS_API.md` (curl examples and QA checklist), `docs/BOOKING_CONFIRMATION_REMINDERS_E2E_TESTING.md` (dispatch + related endpoints, full request/response examples).
 
 ---
 
@@ -59,10 +59,16 @@ Work orders considered:
 - `businessId` matches.
 - `cancelledAt` is null.
 - `scheduledAt` is not null.
+- **`workOrderNumber` is non-null** (legacy rows missing a number are skipped; counters: `skippedReasons.noWorkOrderNumber`).
 
-For each **enabled** `ReminderConfig` (EMAIL, `BOOKING_CONFIRMATION`) × work order:
+**Work-order suppression (before schedule evaluation):**
 
-1. **Duplicate** — if a `ReminderLog` exists with the same `workOrderId` and `note = configId:<id>`, skip (`alreadySentForSchedule`). This is how **settings** reminders are limited to **once** per schedule row per work order. Manual “Send booking confirmation” on the work order does **not** participate in this check and is unchanged.
+- **`WorkOrder.bookingConfirmationSentAt`** — set when **Send booking confirmation** runs from Communications / work order (`POST /api/workorders/{id}/send-booking-confirmation`). That job is skipped for automation (`skippedReasons.suppressedAfterBookingConfirmationEmail`).
+- **`WorkOrder.confirmationReminderSentAt`** — set when a **manual customer reminder** is created from Clients (`POST /api/clients/{id}/customer-reminders`) or from a work order (`POST /api/workorders/{id}/customer-reminders`). All enabled schedule rows are skipped for that work order (`skippedReasons.suppressedByManualCustomerReminder`). Client-level create stamps **non-cancelled** work orders whose **`scheduledAt` is strictly after “now”** (upcoming appointments only).
+
+For each **enabled** `ReminderConfig` (EMAIL, `BOOKING_CONFIRMATION`) × remaining work order:
+
+1. **Duplicate** — if a `ReminderLog` exists with the same `workOrderId` and `note = configId:<id>`, skip (`alreadySentForSchedule`). This limits **automated** settings reminders to **once** per schedule row per work order after all suppression checks above.
 2. **Client email** — if the client has no usable email, skip (`noClientEmail`).
 3. **Compute `reminderTime`** from `scheduledAt`, `timeValue`, `timeUnit`, optional `timeOfDay`, and business `timeZone`.
 4. **Not due yet** — if `asOf < reminderTime`, skip (`notDueYet`).

@@ -337,7 +337,11 @@ export const SETTINGS_ROUTES = {
             skippedReasons: z.object({
               bookingReminderDisabled: z.number().int(),
               noReminderConfigs: z.number().int(),
+              dispatchAlreadyRunning: z.number().int(),
+              noWorkOrderNumber: z.number().int(),
               noClientEmail: z.number().int(),
+              suppressedAfterBookingConfirmationEmail: z.number().int(),
+              suppressedByManualCustomerReminder: z.number().int(),
               alreadySentForSchedule: z.number().int(),
               notDueYet: z.number().int(),
               missedWindow: z.number().int(),
@@ -411,6 +415,99 @@ export const SETTINGS_ROUTES = {
               message: z.string(),
             }),
             uiHint: z.string(),
+          })
+        ),
+        'OK'
+      ),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business not found'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
+
+  getCommunicationsEmailReminders: createRoute({
+    method: 'get',
+    tags: ['Settings'],
+    path: '/communications/email-reminders',
+    summary: 'Get booking confirmation email reminder data from Communications settings',
+    request: {},
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(
+        zodResponseSchema(
+          z.object({
+            bookingConfirmation: z.object({
+              enabled: z.boolean(),
+              schedules: z.array(
+                z.object({
+                  id: z.string(),
+                  timeValue: z.number().int(),
+                  timeUnit: z.enum(['hours', 'days']),
+                  timeOfDay: z.string().nullable(),
+                  channel: z.literal('EMAIL'),
+                  enabled: z.boolean(),
+                })
+              ),
+              template: z.object({
+                subject: z.string(),
+                message: z.string(),
+              }),
+              uiHint: z.string(),
+            }),
+          })
+        ),
+        'OK'
+      ),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business not found'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
+
+  getCommunicationsSendQuoteEmailTemplate: createRoute({
+    method: 'get',
+    tags: ['Settings'],
+    path: '/communications/send-quote-message',
+    summary: 'Get Communications template for Send Quote Message (email)',
+    request: {},
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(
+        zodResponseSchema(
+          z.object({
+            subject: z.string(),
+            message: z.string(),
+          })
+        ),
+        'OK'
+      ),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business not found'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
+
+  patchCommunicationsSendQuoteEmailTemplate: createRoute({
+    method: 'patch',
+    tags: ['Settings'],
+    path: '/communications/send-quote-message',
+    summary: 'Update Communications template for Send Quote Message (email)',
+    request: {
+      body: jsonContentRequired(
+        z.object({
+          subject: z.string().min(1),
+          message: z.string().min(1),
+        }),
+        'Send quote template payload'
+      ),
+    },
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(
+        zodResponseSchema(
+          z.object({
+            subject: z.string(),
+            message: z.string(),
           })
         ),
         'OK'

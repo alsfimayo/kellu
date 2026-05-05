@@ -220,6 +220,15 @@ const ClientReminderOverviewSchema = z.object({
   triggeredReminders: z.array(ClientReminderSchema),
 })
 
+const ClientBookingConfirmationEmailReminderSchema = z.object({
+  workOrderId: z.string(),
+  workOrderNumber: z.string().nullable(),
+  title: z.string(),
+  scheduledAt: z.coerce.date().nullable(),
+  lastSentAt: z.coerce.date(),
+  sendCount: z.number().int(),
+})
+
 const CreateClientReminderBodySchema = z.object({
   date: z.coerce.date(),
   time: z.string().min(1),
@@ -290,6 +299,24 @@ export const CLIENT_ROUTES = {
     responses: {
       [HttpStatusCodes.OK]: jsonContent(zodResponseSchema(LeadSourcesResponseSchema), 'OK'),
       [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Business not found'),
+      [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
+      [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
+      [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),
+    },
+  }),
+
+  listBookingConfirmationReminderEmails: createRoute({
+    method: 'get',
+    tags: ['Clients'],
+    path: '/{clientId}/booking-confirmation-reminder-emails',
+    summary: 'List work orders for this client that have received booking confirmation reminder emails',
+    request: { params: ClientOnlyParamsSchema },
+    responses: {
+      [HttpStatusCodes.OK]: jsonContent(
+        zodResponseSchema(z.array(ClientBookingConfirmationEmailReminderSchema)),
+        'OK'
+      ),
+      [HttpStatusCodes.NOT_FOUND]: jsonContent(zodResponseSchema(), 'Client not found'),
       [HttpStatusCodes.FORBIDDEN]: jsonContent(zodResponseSchema(), 'Forbidden'),
       [HttpStatusCodes.UNAUTHORIZED]: jsonContent(zodResponseSchema(), 'Unauthorized'),
       [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(zodResponseSchema(), 'Server error'),

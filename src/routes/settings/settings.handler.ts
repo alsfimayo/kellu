@@ -20,6 +20,10 @@ import {
   updateQuoteReminderSettings,
 } from '~/services/quote-reminders.service'
 import {
+  getSendQuoteEmailTemplate,
+  updateSendQuoteEmailTemplate,
+} from '~/services/communications-templates.service'
+import {
   getCurrentBusinessSettings,
   listScheduleColors,
   updateCurrentBusinessSettings,
@@ -549,6 +553,106 @@ export const SETTINGS_HANDLER: HandlerMapFromRoutes<typeof SETTINGS_ROUTES> = {
       console.error('Error fetching quote reminders:', error)
       return c.json(
         { message: 'Failed to retrieve quote reminders' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  getCommunicationsEmailReminders: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'settings', 'read'))) {
+        return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN)
+      }
+
+      const bookingConfirmation = await getBookingConfirmationReminderSettings(businessId)
+
+      return c.json(
+        {
+          message: 'Communications email reminders retrieved successfully',
+          success: true,
+          data: { bookingConfirmation },
+        },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error fetching communications email reminders:', error)
+      return c.json(
+        { message: 'Failed to retrieve communications email reminders' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  getCommunicationsSendQuoteEmailTemplate: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'settings', 'read'))) {
+        return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN)
+      }
+      const data = await getSendQuoteEmailTemplate(businessId)
+      return c.json(
+        { message: 'Send quote message template retrieved successfully', success: true, data },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error fetching send quote message template:', error)
+      return c.json(
+        { message: 'Failed to retrieve send quote message template' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      )
+    }
+  },
+
+  patchCommunicationsSendQuoteEmailTemplate: async c => {
+    const user = c.get('user')
+    if (!user) {
+      return c.json({ message: 'Unauthorized' }, HttpStatusCodes.UNAUTHORIZED)
+    }
+    try {
+      const businessId = await getBusinessIdByUserId(user.id)
+      if (!businessId) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      if (!(await hasPermission(user.id, businessId, 'settings', 'update'))) {
+        return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN)
+      }
+      const body = c.req.valid('json')
+      const data = await updateSendQuoteEmailTemplate(businessId, {
+        subject: body.subject,
+        message: body.message,
+      })
+      return c.json(
+        { message: 'Send quote message template updated successfully', success: true, data },
+        HttpStatusCodes.OK
+      )
+    } catch (error) {
+      if (error instanceof BusinessNotFoundError) {
+        return c.json({ message: 'Business not found' }, HttpStatusCodes.NOT_FOUND)
+      }
+      console.error('Error updating send quote message template:', error)
+      return c.json(
+        { message: 'Failed to update send quote message template' },
         HttpStatusCodes.INTERNAL_SERVER_ERROR
       )
     }

@@ -16,6 +16,7 @@ import {
   PlatformNotificationEventKey,
 } from '~/services/platform-notification-rule.service'
 import { resolveClientEmailCopyBcc } from '~/services/platform-settings.service'
+import { getSendQuoteEmailTemplate } from '~/services/communications-templates.service'
 import { ClientNotFoundError, WorkOrderNotFoundError } from '~/services/workorder.service'
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
@@ -1553,27 +1554,55 @@ export async function getQuoteEmailComposeData(
 
   const displayName = q.business.name?.trim() || 'Company'
   const replyTo = q.business.settings?.replyToEmail?.trim() || q.business.email
-  const subject = `Quote from ${displayName} - ${q.title} ${q.quoteCorrelative ?? ''}`.trim()
+  const defaultSubject = `Quote from ${displayName} - ${q.title} ${q.quoteCorrelative ?? ''}`.trim()
 
   // ✅ Still save token to DB for clientRespondGet lookup
   await resolveQuoteActionToken(q.id, q.quoteClientActionToken)
 
-  const message = await renderEmailTemplate('quote-created', {
-    clientName: q.client.name,
-    businessName: displayName,
-    quoteNumber: q.quoteNumber ?? `#${q.id}`,
-    quoteReference: q.quoteCorrelative ?? undefined,
-    title: q.title,
-    address: q.address ?? 'To be confirmed',
-    date: formatQuoteDate(q.scheduledAt),
-    timeRange: formatQuoteTimeRange(q.startTime, q.endTime, q.scheduledAt),
-    assignedTeamMemberName: formatAssignedTeamMemberNames(q),
-    lineItemsSummary: summarizeQuoteLineItems(q.lineItems),
-    total: formatMoney(q.total),
-    logoUrl: q.business.logoUrl ?? undefined,
-    approveUrl: urls.approveUrl, // ✅ from handler
-    rejectUrl: urls.rejectUrl, // ✅ from handler
-  })
+  const applyTokens = (input: string) => {
+    const replacements: Record<string, string> = {
+      '{client_name}': q.client.name ?? '',
+      '{business_name}': displayName,
+      '{company_name}': displayName,
+      '{quote_number}': q.quoteNumber ?? `#${q.id}`,
+      '{quote_reference}': q.quoteCorrelative ?? '',
+      '{quote_title}': q.title ?? '',
+    }
+    let out = input
+    for (const [k, v] of Object.entries(replacements)) {
+      out = out.split(k).join(v)
+    }
+    return out
+  }
+
+  let subject = defaultSubject
+  let message = ''
+  try {
+    const tpl = await getSendQuoteEmailTemplate(businessId)
+    subject = tpl.subject?.trim() ? applyTokens(tpl.subject.trim()) : defaultSubject
+    message = tpl.message?.trim() ? applyTokens(tpl.message.trim()) : ''
+  } catch {
+    // fall back to default template rendering below
+  }
+
+  if (!message) {
+    message = await renderEmailTemplate('quote-created', {
+      clientName: q.client.name,
+      businessName: displayName,
+      quoteNumber: q.quoteNumber ?? `#${q.id}`,
+      quoteReference: q.quoteCorrelative ?? undefined,
+      title: q.title,
+      address: q.address ?? 'To be confirmed',
+      date: formatQuoteDate(q.scheduledAt),
+      timeRange: formatQuoteTimeRange(q.startTime, q.endTime, q.scheduledAt),
+      assignedTeamMemberName: formatAssignedTeamMemberNames(q),
+      lineItemsSummary: summarizeQuoteLineItems(q.lineItems),
+      total: formatMoney(q.total),
+      logoUrl: q.business.logoUrl ?? undefined,
+      approveUrl: urls.approveUrl, // ✅ from handler
+      rejectUrl: urls.rejectUrl, // ✅ from handler
+    })
+  }
 
   const attachments = await buildQuoteEmailAttachmentList(quoteId, q)
 
