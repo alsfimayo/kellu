@@ -237,7 +237,11 @@ export const CLIENT_HANDLER: HandlerMapFromRoutes<typeof CLIENT_ROUTES> = {
       const { clientId } = c.req.valid('param')
       const data = await listClientBookingConfirmationReminderEmails(businessId, clientId)
       return c.json(
-        { message: 'Booking confirmation reminder emails retrieved successfully', success: true, data },
+        {
+          message: 'Booking confirmation reminder emails retrieved successfully',
+          success: true,
+          data,
+        },
         HttpStatusCodes.OK
       )
     } catch (error) {

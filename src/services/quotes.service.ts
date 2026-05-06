@@ -9,6 +9,7 @@ import { Prisma } from '~/generated/prisma'
 import { renderEmailTemplate } from '~/lib/email-render'
 import prisma from '~/lib/prisma'
 import { BusinessNotFoundError } from '~/services/business.service'
+import { getSendQuoteEmailTemplate } from '~/services/communications-templates.service'
 import { emailService } from '~/services/email.service'
 import { clientToCustomerFrom } from '~/services/email-helpers'
 import {
@@ -16,7 +17,6 @@ import {
   PlatformNotificationEventKey,
 } from '~/services/platform-notification-rule.service'
 import { resolveClientEmailCopyBcc } from '~/services/platform-settings.service'
-import { getSendQuoteEmailTemplate } from '~/services/communications-templates.service'
 import { ClientNotFoundError, WorkOrderNotFoundError } from '~/services/workorder.service'
 
 // ─── Errors ──────────────────────────────────────────────────────────────────

@@ -309,7 +309,8 @@ export const CLIENT_ROUTES = {
     method: 'get',
     tags: ['Clients'],
     path: '/{clientId}/booking-confirmation-reminder-emails',
-    summary: 'List work orders for this client that have received booking confirmation reminder emails',
+    summary:
+      'List work orders for this client that have received booking confirmation reminder emails',
     request: { params: ClientOnlyParamsSchema },
     responses: {
       [HttpStatusCodes.OK]: jsonContent(

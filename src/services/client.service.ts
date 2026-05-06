@@ -1048,7 +1048,9 @@ export async function listClientBookingConfirmationReminderEmails(
     }
   }
 
-  return Array.from(byWorkOrder.values()).sort((a, b) => b.lastSentAt.getTime() - a.lastSentAt.getTime())
+  return Array.from(byWorkOrder.values()).sort(
+    (a, b) => b.lastSentAt.getTime() - a.lastSentAt.getTime()
+  )
 }
 
 async function triggerDueClientRemindersForBusiness(businessId: string): Promise<number> {

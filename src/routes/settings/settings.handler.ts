@@ -12,6 +12,10 @@ import {
   updateBookingConfirmationReminderSettings,
 } from '~/services/booking-confirmation-reminders.service'
 import { BusinessNotFoundError, getBusinessIdByUserId } from '~/services/business.service'
+import {
+  getSendQuoteEmailTemplate,
+  updateSendQuoteEmailTemplate,
+} from '~/services/communications-templates.service'
 import { hasPermission } from '~/services/permission.service'
 import {
   dispatchQuoteReminders,
@@ -19,10 +23,6 @@ import {
   getQuoteReminderTemplateVariablesResponse,
   updateQuoteReminderSettings,
 } from '~/services/quote-reminders.service'
-import {
-  getSendQuoteEmailTemplate,
-  updateSendQuoteEmailTemplate,
-} from '~/services/communications-templates.service'
 import {
   getCurrentBusinessSettings,
   listScheduleColors,
