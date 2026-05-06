@@ -3,7 +3,7 @@ import type { OpenAPIHono, RouteConfig, RouteHandler, z } from '@hono/zod-openap
 import type { Env } from 'hono'
 import type { UserRole } from '~/generated/prisma'
 import type { auth } from '~/lib/auth'
-
+//hello
 export interface AppBindings {
   Variables: {
     user:
