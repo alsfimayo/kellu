@@ -15,8 +15,8 @@ export const ORIGINS = [
   'http://localhost:8080',
   'http://localhost:9000',
   'https://demo.kellu.com', // .com ≠ .kellu.co; fine for CORS API calls, not for shared .kellu.co cookies on that host
-  // 'https://kellu-frontend.onrender.com',
-  // 'https://kelluproject.kellu.co',
+  'https://kellu-frontend.onrender.com',
+  'https://kelluproject.kellu.co',
   'https://api.kellu.co',
   'https://kellu-frontend-bs4o.onrender.com',
 ]
